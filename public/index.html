@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Distriaves · Clientes</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="app">
+  <aside class="sidebar">
+    <div class="logo">
+      <div class="logo-mark">D</div>
+      <div>
+        <div class="logo-name">Distriaves</div>
+        <div class="logo-sub">Gestión de clientes</div>
+      </div>
+    </div>
+    <nav class="nav" id="navLateral"></nav>
+    <div class="side-footer">
+      <p class="side-note">Los datos viven en el servidor: puedes entrar desde cualquier equipo.</p>
+      <div class="side-actions">
+        <button class="side-btn" onclick="exportar()" id="btnExportar"></button>
+        <button class="side-btn" onclick="document.getElementById('inputImportar').click()" id="btnImportar"></button>
+      </div>
+      <p class="version">v1.0 · API + SQLite</p>
+    </div>
+  </aside>
+
+  <main>
+    <header class="topbar">
+      <div><h1 id="tituloVista">Resumen</h1></div>
+      <span class="fecha num" id="fechaHoy"></span>
+      <div class="top-search">
+        <span id="icoSearch"></span>
+        <input id="buscador" placeholder="Buscar cliente o negocio" oninput="onBuscar()">
+        <kbd>/</kbd>
+      </div>
+      <button class="btn btn-primary" onclick="abrirForm()">
+        <span id="icoPlus"></span> Nuevo cliente <kbd>N</kbd>
+      </button>
+    </header>
+    <div class="contenido" id="vista"></div>
+  </main>
+</div>
+
+<nav class="mobile-nav" id="navMovil"></nav>
+<div id="zonaModal"></div>
+<div id="zonaToast"></div>
+<input type="file" id="inputImportar" accept=".json,application/json" style="display:none" onchange="importar(this.files[0])">
+
+<script src="app.js"></script>
+</body>
+</html>
