@@ -300,3 +300,686 @@ tr:hover .acciones{opacity:1}
   color:var(--text-3);display:flex;flex-direction:column;align-items:center;gap:3px;
 }
 .mobile-nav button.on{color:var(--brand)}
+
+/* ================================================================
+   Verificador, proceso y acceso · añadidos v2
+   Se apoyan en los mismos tokens de arriba: nada de paleta nueva.
+   ================================================================ */
+
+/* ---------- pantalla de acceso ----------
+   La pantalla de entrada es una hoja del formato. Todo lo que hace
+   esta herramienta pasa sobre papel rayado: renglones, barras de
+   sección, etiquetas impresas en versalitas y correcciones marcadas
+   con resaltador. La entrada usa ese mismo vocabulario en vez de la
+   tarjeta centrada de cualquier aplicación.
+   Los campos son renglones, no cajas: se llena como se llena el
+   formato. El error se marca en amarillo, como lo marcan los
+   supervisores cuando devuelven un paquete. */
+.pantalla-acceso{
+  display:flex;align-items:center;justify-content:center;padding:24px;
+  background:
+    repeating-linear-gradient(to bottom,
+      transparent 0, transparent 27px,
+      var(--papel-raya) 27px, var(--papel-raya) 28px),
+    var(--papel);
+}
+.pantalla-acceso::before{
+  content:"";position:fixed;inset:0;pointer-events:none;
+  background:radial-gradient(ellipse at 50% 45%, transparent 30%, rgba(17,24,39,.055) 100%);
+}
+:root{
+  --papel:#F5F5F0;
+  --papel-raya:#E6E9E1;
+  --papel-barra:#E9EBE4;
+  --resaltador:#FFE79E;
+}
+
+.acceso{
+  position:relative;width:100%;max-width:376px;background:var(--surface);
+  border:1px solid #D9DCD3;box-shadow:0 14px 34px rgba(17,24,39,.09);
+  padding:0;overflow:hidden;
+}
+@media (prefers-reduced-motion:no-preference){
+  .acceso{animation:subir .38s cubic-bezier(.2,.7,.3,1) both}
+  @keyframes subir{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:none}}
+}
+
+.acceso-marca{display:flex;align-items:center;gap:10px;padding:18px 20px 15px}
+.acceso-nombre{font-weight:600;font-size:13.5px;letter-spacing:-.01em}
+.acceso-sub{font-size:10.5px;color:var(--text-2);margin-top:1px}
+
+/* La barra gris con el título, igual que las del formato. */
+.acceso-barra{
+  background:var(--papel-barra);border-top:1px solid #D9DCD3;border-bottom:1px solid #D9DCD3;
+  padding:6px 20px;font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  color:#4B5563;
+}
+.acceso-cuerpo{padding:20px 20px 22px}
+.acceso h1{font-size:19px;font-weight:600;letter-spacing:-.015em;margin-bottom:4px}
+.acceso-nota{font-size:12px;color:var(--text-2);margin-bottom:22px;line-height:1.55}
+
+/* Campos como renglones del formato: la etiqueta impresa a la
+   izquierda y la raya donde se escribe. */
+.acceso-campo{display:flex;align-items:baseline;gap:10px;margin-bottom:18px}
+.acceso-campo label{
+  flex-shrink:0;width:82px;font-size:9px;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--text-2);
+}
+.acceso-campo input{
+  flex:1;min-width:0;border:none;background:transparent;border-bottom:1.5px solid #C9CEC4;
+  padding:5px 2px;font-size:15px;color:var(--text);border-radius:0;
+  transition:border-color .15s,box-shadow .15s;
+}
+.acceso-campo input:hover{border-bottom-color:#A9B0A3}
+.acceso-campo input:focus{outline:none;border-bottom-color:var(--brand);box-shadow:0 1px 0 var(--brand)}
+.acceso-campo input:focus-visible{outline:2px solid var(--brand);outline-offset:5px}
+
+.acceso .btn-primary{width:100%;justify-content:center;margin-top:6px;border-radius:7px;padding:11px}
+
+/* El error se marca como lo marcan al devolver un paquete. */
+.acceso-error{
+  margin:2px 0 14px;font-size:12px;color:#7A1F1F;line-height:1.5;
+  background:linear-gradient(var(--resaltador), var(--resaltador)) left center/100% 88% no-repeat;
+  padding:2px 4px;display:inline-block;
+}
+
+/* Pie de hoja, como el del formato impreso. */
+.acceso-pie{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:9px 20px;border-top:1px solid var(--border);
+  font-size:9.5px;color:var(--text-3);letter-spacing:.06em;text-transform:uppercase;
+}
+
+.btn-ancho{width:100%;justify-content:center;margin-top:4px}
+
+/* ---------- zona para soltar el PDF ---------- */
+.zona-soltar{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;
+  padding:52px 24px;text-align:center;border:1.5px dashed var(--border-strong);
+  background:var(--surface-2);transition:border-color .15s,background .15s;
+}
+.zona-soltar.encima{border-color:var(--brand);background:var(--brand-weak)}
+.zona-soltar .ico-grande{
+  width:52px;height:52px;border-radius:14px;background:var(--brand-weak);color:var(--brand);
+  display:flex;align-items:center;justify-content:center;margin-bottom:4px;
+}
+.zona-soltar .t{font-size:14.5px;font-weight:600}
+.zona-soltar .s{font-size:12px;color:var(--text-2);max-width:380px;line-height:1.55}
+.zona-soltar .s.tenue{color:var(--text-3);font-size:11px;margin-top:6px}
+.zona-soltar .btn{margin-top:8px}
+.zona-soltar .form-error{margin-top:10px}
+.spinner{
+  width:30px;height:30px;border-radius:50%;
+  border:2.5px solid var(--border);border-top-color:var(--brand);
+  animation:girar .7s linear infinite;margin-bottom:6px;
+}
+@keyframes girar{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spinner{animation-duration:2.5s}}
+
+/* ---------- cabecera y rejilla del verificador ---------- */
+.ver-cab{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:14px}
+.ver-cab h2{font-size:15px;font-weight:600;word-break:break-all}
+.ver-cab .s{font-size:11.5px;color:var(--text-2);margin-top:2px}
+.grid-ver{display:grid;grid-template-columns:280px 1fr;gap:14px;align-items:start}
+@media (max-width:1080px){.grid-ver{grid-template-columns:1fr}}
+
+/* ---------- miniaturas de páginas ---------- */
+.miniaturas{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:10px;padding:12px}
+.mini{border:1px solid var(--border);border-radius:7px;overflow:hidden;background:var(--surface-2)}
+.mini img{width:100%;height:104px;object-fit:cover;object-position:top center;display:block;background:#fff}
+.mini figcaption{
+  display:flex;align-items:center;gap:5px;padding:5px 7px 3px;
+  font-size:10px;color:var(--text-2);
+}
+.mini-n{
+  background:var(--text);color:#fff;border-radius:4px;padding:0 5px;
+  font-size:9.5px;font-weight:600;line-height:15px;
+}
+.mini-hoja{background:var(--brand-weak);color:var(--brand);border-radius:4px;padding:0 5px;font-weight:600;line-height:15px}
+.mini select{
+  width:100%;border:none;border-top:1px solid var(--border);background:var(--surface);
+  padding:5px 6px;font-size:10.5px;color:var(--text);cursor:pointer;
+}
+.mini select:focus-visible{outline:2px solid var(--brand);outline-offset:-2px}
+
+/* ---------- caja del RUT ---------- */
+.rut-caja{
+  margin-top:12px;background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--radius);padding:12px 14px;box-shadow:var(--shadow-sm);
+}
+.rut-caja.escaneado{display:flex;gap:9px;align-items:flex-start;font-size:12px;line-height:1.55;color:var(--text-2);background:var(--warn-bg);border-color:#EBD9B4}
+.rut-caja.escaneado svg{color:var(--warn);margin-top:1px}
+.rut-cab{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:var(--ok);margin-bottom:9px}
+.rut-fila{display:flex;justify-content:space-between;gap:10px;padding:4px 0;border-top:1px solid var(--border);font-size:11.5px}
+.rut-fila:first-of-type{border-top:none}
+.rut-fila span{color:var(--text-2);flex-shrink:0}
+.rut-fila b{font-weight:500;text-align:right;word-break:break-word}
+.rut-nota{font-size:10.5px;color:var(--text-3);margin-top:9px;line-height:1.5}
+
+/* ---------- campos en fila ---------- */
+.campos-fila{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;padding:14px 14px 4px}
+.campos-fila .campo{margin:0}
+#listaReglasPanel .ayuda,.panel>.ayuda{padding:0 14px 12px;margin:0}
+
+/* ---------- veredicto ---------- */
+.veredicto{
+  display:flex;align-items:flex-start;gap:11px;padding:14px;border-radius:var(--radius);
+  border:1px solid var(--border);background:var(--surface);margin:14px 0;box-shadow:var(--shadow-sm);
+}
+.veredicto .v-tit{font-size:13.5px;font-weight:600}
+.veredicto .v-sub{font-size:11.5px;color:var(--text-2);margin-top:2px;line-height:1.55}
+.veredicto>div{flex:1;min-width:0}
+.veredicto .btn{flex-shrink:0;align-self:center}
+.veredicto.ok{background:var(--ok-bg);border-color:#C6E7D2}
+.veredicto.ok>svg{color:var(--ok)}
+.veredicto.falla{background:var(--danger-bg);border-color:#F2CFCF}
+.veredicto.falla>svg{color:var(--danger)}
+.veredicto.pendiente{background:var(--warn-bg);border-color:#EBD9B4}
+.veredicto.pendiente>svg{color:var(--warn)}
+.campo-url{margin-top:12px}
+.campo-url label{display:block;font-size:11px;font-weight:500;color:var(--text-2);margin-bottom:4px}
+.campo-url input{
+  width:100%;padding:7px 9px;border:1px solid var(--border-strong);border-radius:6px;
+  font-size:12px;background:var(--surface);
+}
+.campo-url .ayuda{margin-top:5px}
+
+/* ---------- lista de reglas ---------- */
+.grupo-reglas{border-top:1px solid var(--border)}
+.grupo-reglas:first-child{border-top:none}
+.grupo-reglas h3{
+  font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--text-3);padding:11px 14px 6px;
+}
+.regla{display:flex;gap:10px;padding:9px 14px;align-items:flex-start}
+.regla+.regla{border-top:1px solid var(--surface-2)}
+.regla-txt{flex:1;min-width:0}
+.regla-tit{font-size:12.5px;font-weight:500;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.regla-det{font-size:11.5px;color:var(--text-2);margin-top:2px;line-height:1.55}
+.regla-ayuda{font-size:11px;color:var(--text-3);margin-top:3px;line-height:1.5;font-style:italic}
+.regla.falla{background:var(--danger-bg)}
+.regla.falla .regla-det{color:#8E2020}
+.regla.aviso{background:var(--warn-bg)}
+.marca{width:19px;height:19px;border-radius:5px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
+.marca.ok{background:var(--ok-bg);color:var(--ok)}
+.marca.falla{background:#F7D5D5;color:var(--danger)}
+.marca.aviso{background:#F3E3C4;color:var(--warn)}
+.marca.pendiente,.marca.na{background:var(--surface-2);color:var(--text-3)}
+.casilla{
+  width:19px;height:19px;border-radius:5px;flex-shrink:0;margin-top:1px;
+  border:1.5px solid var(--border-strong);background:var(--surface);
+  display:flex;align-items:center;justify-content:center;color:#fff;padding:0;
+}
+.casilla:hover{border-color:var(--brand)}
+.casilla.on{background:var(--brand);border-color:var(--brand)}
+.casilla:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+.etq{
+  font-size:9.5px;font-weight:600;padding:1px 6px;border-radius:99px;
+  text-transform:uppercase;letter-spacing:.04em;
+}
+.etq.bloqueo{background:var(--danger-bg);color:var(--danger)}
+.etq.intentos{background:var(--warn-bg);color:var(--warn);margin-left:7px;text-transform:none;letter-spacing:0}
+
+/* ---------- vista de proceso ---------- */
+.barras{padding:12px 14px;display:flex;flex-direction:column;gap:9px}
+.barra-fila{display:grid;grid-template-columns:1fr 130px 26px;gap:10px;align-items:center}
+.barra-etq{font-size:12px;color:var(--text)}
+.barra-riel{height:7px;background:var(--surface-2);border-radius:99px;overflow:hidden}
+.barra{height:100%;background:var(--danger);border-radius:99px;min-width:3px}
+.barra-n{font-size:11.5px;color:var(--text-2);text-align:right}
+@media (max-width:640px){.barra-fila{grid-template-columns:1fr 60px 22px}}
+.nota-proceso,.aviso-devueltos{
+  display:flex;gap:10px;align-items:flex-start;padding:14px;
+  font-size:12px;line-height:1.6;color:var(--text-2);
+}
+.nota-proceso svg{color:var(--brand);margin-top:2px;flex-shrink:0}
+.aviso-devueltos{background:var(--warn-bg);border-color:#EBD9B4;margin-bottom:14px}
+.aviso-devueltos svg{color:var(--warn);margin-top:2px;flex-shrink:0}
+.nota-proceso strong,.aviso-devueltos strong{color:var(--text);font-weight:600}
+
+/* ---------- ajustes a lo existente ---------- */
+.cola-item.avisa{background:var(--warn-bg)}
+.pill-dias.ambar{background:var(--warn-bg);color:var(--warn)}
+.ico-btn.ambar:hover{background:var(--warn-bg);color:var(--warn)}
+.fila-devuelta{background:var(--danger-bg)}
+.seg button.on-dev{background:var(--danger-bg);color:var(--danger);border-color:#F2CFCF}
+.side-usuario{
+  display:flex;align-items:center;gap:8px;padding-top:8px;border-top:1px solid #212B27;
+  font-size:10.5px;color:#7E8A84;
+}
+.side-usuario span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.side-usuario .side-btn{flex:0 0 auto}
+
+/* ---------- visor de hojas con marcas ---------- */
+.visor{display:grid;grid-template-columns:1fr 320px;gap:14px;align-items:start}
+.visor.ancho{grid-template-columns:1fr}
+@media (max-width:1100px){.visor{grid-template-columns:1fr}}
+.visor-hojas{display:flex;flex-direction:column;gap:14px}
+.visor-panel{position:sticky;top:14px;display:flex;flex-direction:column;gap:12px}
+@media (max-width:1100px){.visor-panel{position:static;order:-1}}
+
+.hoja{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow-sm)}
+.hoja-cab{display:flex;align-items:center;gap:7px;padding:8px 12px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text-2)}
+/* El papel y, al lado, el margen donde viven las etiquetas.
+   Nada de lo que la herramienta dibuja se pone encima del documento
+   salvo el contorno del recuadro: en un formato con renglones de 14 px
+   cualquier chip tapa justo el dato que señala. */
+.hoja-lienzo{position:relative;display:grid;grid-template-columns:1fr 196px;background:var(--surface-2)}
+.hoja-scroll{
+  overflow-x:auto;overflow-y:hidden;min-width:0;
+  scrollbar-width:thin;scrollbar-color:var(--border-strong) transparent;
+}
+.hoja-scroll::-webkit-scrollbar{height:11px}
+.hoja-scroll::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:99px;border:3px solid var(--surface-2)}
+.hoja-scroll::-webkit-scrollbar-track{background:transparent}
+/* Con la hoja acercada se puede arrastrar para moverse por ella, en
+   vez de apuntar a una barra de once píxeles cada vez. */
+.hoja-scroll.movible{cursor:grab}
+.hoja-scroll.agarrando{cursor:grabbing;user-select:none}
+.hoja-scroll.agarrando canvas{pointer-events:none}
+.hoja-papel{position:relative;line-height:0;max-width:none}
+.hoja-papel canvas{width:100%;height:auto;display:block}
+
+/* ---- barra de zoom ---- */
+.visor-barra{
+  position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:7px;
+  padding:7px 11px;border:1px solid var(--border);border-radius:var(--radius);
+  background:var(--surface);box-shadow:var(--shadow-sm);
+}
+.vb-tit{font-size:11px;color:var(--text-2);font-weight:500}
+.vb-btn{
+  min-width:26px;height:24px;padding:0 8px;border-radius:6px;font-size:13px;line-height:1;
+  border:1px solid var(--border-strong);background:var(--surface);color:var(--text);
+}
+.vb-btn:hover{border-color:var(--brand);color:var(--brand)}
+.vb-btn.ancho{font-size:11px}
+.vb-pct{min-width:44px;text-align:center;font-size:11.5px;font-weight:600}
+.vb-pct.cargando{opacity:.45}
+.vb-ayuda{margin-left:auto;font-size:10.5px;color:var(--text-3)}
+@media (max-width:820px){.vb-ayuda{display:none}}
+.hoja-margen{position:relative;background:var(--surface);border-left:1px solid var(--border)}
+.hoja-guias{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible;z-index:2}
+@media (max-width:820px){
+  .hoja-lienzo{grid-template-columns:1fr 46px}
+  .rotulo-t{display:none}
+}
+
+/* ---- recuadro sobre el papel: solo contorno ---- */
+.marca-campo{
+  position:absolute;border:2px solid var(--danger);border-radius:3px;
+  background:rgba(220,38,38,.07);pointer-events:none;
+  transition:background .15s,box-shadow .15s;
+}
+.marca-campo.amarillo{border-color:var(--warn);background:rgba(180,83,9,.07)}
+.marca-campo.verde{border-color:var(--ok);background:rgba(22,163,74,.07)}
+
+/* Ajuste aproximado: se marca la franja de lado a lado, sin fingir una
+   casilla. Un recuadro angosto en la columna equivocada se lee como
+   «el error está aquí»; la franja dice lo único que se sabe. */
+.marca-campo.franja{
+  border-left:none;border-right:none;border-radius:0;border-style:dashed;
+  background:rgba(220,38,38,.045);
+}
+.marca-campo.franja.amarillo{background:rgba(180,83,9,.045)}
+.marca-campo.franja.verde{background:rgba(22,163,74,.045)}
+.marca-campo.activa{background:rgba(17,24,39,.14);box-shadow:0 0 0 2px rgba(17,24,39,.35)}
+
+/* ---- etiqueta en el margen ---- */
+.rotulo{
+  position:absolute;left:26px;right:6px;height:22px;display:flex;align-items:center;gap:5px;
+  padding:0 3px 0 5px;border-radius:6px;border:1px solid var(--border-strong);
+  background:var(--surface);color:var(--text);font-size:10.5px;line-height:1;
+  white-space:nowrap;overflow:hidden;cursor:pointer;transition:border-color .12s,box-shadow .12s;
+}
+.rotulo.franja{border-style:dashed}
+.rotulo:hover,.rotulo.activa{border-color:var(--text);box-shadow:var(--shadow-sm);z-index:3}
+.rotulo-n{
+  width:14px;height:14px;border-radius:50%;flex-shrink:0;color:#fff;font-size:8.5px;font-weight:700;
+  display:flex;align-items:center;justify-content:center;background:var(--danger);
+}
+.rotulo.amarillo .rotulo-n{background:var(--warn)}
+.rotulo.verde .rotulo-n{background:var(--ok)}
+.rotulo-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.rotulo-btn{
+  width:17px;height:17px;border-radius:4px;flex-shrink:0;padding:0;
+  display:flex;align-items:center;justify-content:center;
+  border:1px solid var(--border-strong);background:var(--surface);color:var(--text-2);
+}
+.rotulo-btn.ok:hover{background:var(--ok-bg);color:var(--ok);border-color:#C6E7D2}
+.rotulo-btn.x:hover{background:var(--danger-bg);color:var(--danger)}
+@media (max-width:820px){.rotulo{left:8px;padding:0 2px 0 3px}.rotulo-btn{display:none}}
+
+/* ---- línea que une recuadro y etiqueta ---- */
+.guia{fill:none;stroke:var(--danger);stroke-width:1.25;opacity:.32;transition:opacity .12s,stroke-width .12s}
+.guia.amarillo{stroke:var(--warn)}
+.guia.verde{stroke:var(--ok)}
+.guia.activa{opacity:1;stroke-width:2}
+
+/* ---- capa de diagnóstico ---- */
+.diag-linea{stroke:#0891B2;stroke-width:1;opacity:.5}
+.diag-ref{stroke:#7C3AED;stroke-width:1;opacity:.75;stroke-dasharray:5 4}
+.diag-barra{stroke:#EA580C;stroke-width:3;opacity:.28}
+
+/* ---- controles de la cabecera de cada hoja ---- */
+.hoja-sel{display:inline-flex;gap:2px;margin-left:auto}
+.hoja-op{
+  font-size:10px;padding:2px 6px;border-radius:5px;border:1px solid var(--border-strong);
+  background:var(--surface);color:var(--text-2);font-variant-numeric:tabular-nums;
+}
+.hoja-op.on{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:600}
+.hoja-est{font-size:10px;padding:2px 7px;border-radius:99px;white-space:nowrap}
+.hoja-est.ok{background:var(--ok-bg);color:var(--ok)}
+.hoja-est.aprox{background:var(--warn-bg);color:var(--warn)}
+.hoja-est.sin{background:var(--surface-2);color:var(--text-3)}
+.hoja-diag{
+  font-size:10px;padding:2px 7px;border-radius:5px;border:1px solid var(--border-strong);
+  background:var(--surface);color:var(--text-2);
+}
+.hoja-diag.on{background:var(--text);border-color:var(--text);color:#fff}
+.hoja-diag-datos{font-size:9.5px;color:var(--text-3);white-space:nowrap}
+@media (max-width:820px){.hoja-diag-datos{display:none}}
+
+.hallazgo{display:flex;gap:9px;align-items:flex-start;padding:9px 12px;cursor:pointer}
+.hallazgo+.hallazgo{border-top:1px solid var(--surface-2)}
+.hallazgo:hover{background:var(--surface-2)}
+.hallazgo .punto{width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-top:5px}
+.h-n{
+  width:15px;height:15px;border-radius:50%;flex-shrink:0;margin-top:1px;color:#fff;
+  font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;
+}
+.h-n.rojo{background:var(--danger)}
+.h-n.amarillo{background:var(--warn)}
+.h-n.verde{background:var(--ok)}
+.hallazgo.resaltada{background:var(--brand-weak)}
+.punto.rojo{background:var(--danger)}
+.punto.amarillo{background:var(--warn)}
+.punto.verde{background:var(--ok)}
+.h-txt{flex:1;min-width:0}
+.h-tit{font-size:12.5px;font-weight:500}
+.h-det{font-size:11px;color:var(--text-2);margin-top:2px;line-height:1.5}
+.h-motivo{font-size:10.5px;color:var(--ok);margin-top:3px;font-weight:500}
+.h-aprox{font-size:10px;color:var(--text-3);margin-top:3px;font-style:italic}
+.hallazgo.verde .h-tit{color:var(--text-2);text-decoration:line-through}
+.mini-ok,.mini-x{
+  width:22px;height:22px;border-radius:6px;flex-shrink:0;padding:0;
+  display:flex;align-items:center;justify-content:center;border:1px solid var(--border-strong);
+  background:var(--surface);color:var(--text-2);
+}
+.mini-ok:hover{background:var(--ok-bg);color:var(--ok);border-color:#C6E7D2}
+.mini-x:hover{background:var(--danger-bg);color:var(--danger)}
+
+.motivos{display:flex;flex-direction:column;gap:6px;margin:12px 0}
+.motivo-btn{
+  text-align:left;padding:9px 11px;border-radius:7px;border:1px solid var(--border-strong);
+  background:var(--surface);font-size:12.5px;color:var(--text);
+}
+.motivo-btn:hover{border-color:var(--brand);background:var(--brand-weak)}
+.acciones-envio{display:flex;flex-direction:column;gap:7px;padding:12px}
+.acciones-envio .btn{justify-content:center}
+
+/* ---------- fallos visibles ---------- */
+/* Un error de JavaScript que nadie atrapa deja la pantalla a medio
+   pintar y en silencio. Desde afuera eso es «no funciona», y depurarlo
+   cuesta varias vueltas. Mejor que se vea. */
+.banda-fallo{
+  position:fixed;left:12px;right:12px;bottom:12px;z-index:999;display:flex;gap:10px;
+  align-items:flex-start;padding:11px 13px;border-radius:var(--radius);
+  background:#2A1212;color:#FFD9D9;box-shadow:var(--shadow-lg);font-size:11.5px;
+}
+.bf-txt{flex:1;min-width:0}
+.banda-fallo pre{
+  margin-top:5px;white-space:pre-wrap;word-break:break-word;font-size:10.5px;
+  max-height:130px;overflow:auto;opacity:.85;
+}
+.bf-x{
+  background:rgba(255,255,255,.12);color:#fff;border:none;border-radius:6px;
+  padding:5px 10px;font-size:11px;flex-shrink:0;
+}
+.fallo-visor{padding:16px}
+.fallo-visor .t{font-size:13.5px;font-weight:600;color:var(--danger)}
+.fallo-visor .s{font-size:12px;color:var(--text-2);margin:4px 0 10px;line-height:1.5}
+.fallo-visor pre{
+  white-space:pre-wrap;word-break:break-word;font-size:10.5px;color:var(--text-2);
+  background:var(--surface-2);border:1px solid var(--border);border-radius:6px;
+  padding:9px;max-height:220px;overflow:auto;margin-bottom:10px;
+}
+.side-version{margin-left:auto;font-size:10px;color:var(--text-3);opacity:.7}
+
+/* ---- casillas transcritas (v10) ---- */
+.ocr-lista { display:flex; flex-direction:column; gap:6px; margin:4px 0 10px; }
+.ocr-fila { display:flex; align-items:baseline; gap:8px; font-size:13px; flex-wrap:wrap; }
+.ocr-campo { color:var(--text-2); min-width:150px; flex:0 0 auto; }
+.ocr-texto { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; word-break:break-all; }
+.ocr-texto.vacio { color:var(--danger); font-style:italic; }
+.ocr-duda { font-size:11px; color:var(--text-3); border:1px solid currentColor;
+            border-radius:4px; padding:0 4px; }
+
+/* ---- rejilla de casillas (v11) ---- */
+.casilla-color{position:absolute;border-radius:3px;pointer-events:auto;box-sizing:border-box;
+  border:1.5px solid;background:transparent;transition:background .12s}
+.casilla-color:hover{background:rgba(255,255,255,.35)}
+.casilla-color.verde{border-color:var(--ok);box-shadow:inset 0 0 0 9999px rgba(22,163,74,.13)}
+.casilla-color.amarillo{border-color:var(--warn);box-shadow:inset 0 0 0 9999px rgba(180,83,9,.15)}
+.casilla-color.rojo{border-color:var(--danger);box-shadow:inset 0 0 0 9999px rgba(220,38,38,.15)}
+.casilla-color.gris{border-color:var(--text-3);border-style:dashed;box-shadow:none}
+.casilla-color.leida{border-width:2.5px}
+.cas-resumen{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 8px}
+.cas-chip{font-size:11px;padding:2px 8px;border-radius:999px;font-weight:600}
+.cas-chip.verde{background:var(--ok-bg);color:var(--ok)}
+.cas-chip.amarillo{background:var(--warn-bg);color:var(--warn)}
+.cas-chip.rojo{background:var(--danger-bg);color:var(--danger)}
+.cas-chip.gris{background:var(--surface-2);color:var(--text-3)}
+.hint-btn{background:none;border:0;cursor:pointer;text-decoration:underline;font:inherit;color:inherit}
+
+/* ---- diligenciar (v13) ---- */
+.dil-tabs{display:flex;gap:6px;margin-bottom:14px}
+.dil-tab{border:1px solid var(--border);background:var(--surface);border-radius:var(--radius);
+  padding:7px 14px;font:inherit;font-size:13px;cursor:pointer;color:var(--text-2)}
+.dil-tab.on{background:var(--brand-weak);border-color:var(--brand);color:var(--brand);font-weight:600}
+.campos-rejilla{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}
+.campos-rejilla .campo.ancho{grid-column:1/-1}
+.campos-rejilla label{display:block;font-size:11px;color:var(--text-2);margin-bottom:3px}
+.campos-rejilla input{width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid var(--border);
+  border-radius:6px;font:inherit;font-size:13px}
+.campos-rejilla input:focus{outline:2px solid var(--brand);outline-offset:-1px}
+.campos-rejilla input:disabled{background:var(--surface-2);color:var(--text-2)}
+.falta{color:var(--danger);font-weight:600}
+.espejo{color:var(--brand);font-weight:600}
+.ops{display:flex;flex-wrap:wrap;gap:5px}
+.op{border:1px solid var(--border);background:var(--surface);border-radius:999px;padding:4px 11px;
+  font:inherit;font-size:12px;cursor:pointer}
+.op.on{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:600}
+.dil-pie{position:sticky;bottom:0;background:var(--bg);padding:10px 0 4px;
+  box-shadow:0 -6px 12px -8px rgba(16,24,40,.25)}
+.dil-acciones{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+/* selector de letra (v30): va dentro del pie pegajoso, encima del
+   botón de generar, con un filete arriba para que no se lea como
+   parte del último campo del cuestionario */
+.atajos{display:flex;gap:4px;flex-wrap:wrap;margin-top:5px}
+.atajo{padding:2px 8px;border:1px solid var(--border-strong);border-radius:999px;
+  background:var(--surface);color:var(--text-2);font:inherit;font-size:11px;cursor:pointer}
+.atajo:hover{border-color:var(--brand);color:var(--brand)}
+.atajo:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+.atajo.on{background:var(--brand-weak);border-color:var(--brand);color:var(--brand);font-weight:600}
+
+/* ---- llenar con datos de prueba ----
+   Va debajo de las dos zonas de soltar archivos y separado por un
+   filete, porque no es una tercera zona: es un atajo para probar. El
+   aviso de que los datos son falsos va AL LADO del botón, no en el
+   toast de después. */
+.dil-prueba{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  margin-top:12px;padding-top:11px;border-top:1px dashed var(--border-strong)}
+.btn-prueba{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;white-space:nowrap;
+  padding:6px 12px;border:1px solid var(--warn);border-radius:var(--radius);
+  background:var(--warn-bg);color:var(--warn);font:inherit;font-size:12px;
+  font-weight:600;cursor:pointer}
+.btn-prueba svg{margin-right:2px;flex:0 0 auto}
+.btn-prueba:focus-visible{outline:2px solid var(--warn);outline-offset:2px}
+.btn-prueba:hover{background:var(--warn);color:#fff}
+.btn-prueba:hover svg{stroke:#fff}
+.dil-prueba-nota{color:var(--text-3);font-size:11.5px;line-height:1.35;min-width:180px;flex:1}
+
+/* ---- las tres letras, escritas en su propia letra ----
+   Las fuentes se declaran aquí para poder ENSEÑAR cada opción escrita
+   con ella. Son las mismas tres que incrusta el PDF: si se añade una
+   al catálogo LETRAS hay que declararla también aquí, o esa muestra
+   saldría en la letra del navegador y engañaría. Hay prueba de que las
+   tres están declaradas.
+   `swap` para que el nombre se lea desde el primer momento aunque el
+   .ttf tarde; son 180 KB entre las tres. */
+@font-face{font-family:'shortstack';src:url('fuentes/ShortStack-Regular.ttf');font-display:swap}
+@font-face{font-family:'gochihand';src:url('fuentes/GochiHand-Regular.ttf');font-display:swap}
+@font-face{font-family:'permanentmarker';src:url('fuentes/PermanentMarker-Regular.ttf');font-display:swap}
+
+.dil-letra{border-top:1px solid var(--border);padding-top:11px;margin-bottom:9px}
+.letra-ops{display:flex;gap:8px;margin-top:2px;align-items:stretch}
+.letra-op{flex:1 1 0;min-width:0;box-sizing:border-box;display:flex;flex-direction:column;gap:8px;padding:11px 12px 10px;
+  border:1px solid var(--border-strong);border-radius:var(--radius);
+  background:var(--surface);font:inherit;text-align:left;cursor:pointer}
+.letra-op:hover{border-color:var(--brand)}
+/* Mismo foco que el resto de la app: se llega a las tres con Tab. */
+.letra-op:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+.letra-op.on{border-color:var(--brand);background:var(--brand-weak);
+  box-shadow:inset 0 0 0 1px var(--brand)}
+/* La muestra manda: ocupa la línea entera y se corta por la derecha si
+   el nombre es largo, igual que se saldría de la casilla en el papel. */
+.letra-muestra{display:block;color:#1A235C;line-height:1.25;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.letra-pie{display:flex;flex-direction:column;gap:2px;
+  border-top:1px solid var(--border);padding-top:7px}
+.letra-nombre{font-size:12px;font-weight:600;color:var(--text-2)}
+.letra-op.on .letra-nombre{color:var(--brand)}
+.letra-nota{font-size:11px;color:var(--text-3);line-height:1.3}
+
+/* En pantalla estrecha las tres no caben en fila: pasan a una columna,
+   que además deja la muestra más ancha y se lee mejor. */
+@media (max-width:720px){
+  .letra-ops{flex-direction:column}
+  .letra-op{flex-direction:row;align-items:center;gap:12px}
+  .letra-muestra{flex:1;min-width:0}
+  .letra-pie{border-top:0;border-left:1px solid var(--border);
+    padding:0 0 0 12px;width:44%;flex-shrink:0}
+}
+
+/* vista previa a tamaño completo, con zonas pinchables */
+.previa-envoltura{position:relative;border:1px solid var(--border);border-radius:6px;
+  overflow:visible;background:var(--surface-2)}
+.previa-envoltura canvas{display:block;width:100%;height:auto;border-radius:6px}
+.previa-zonas{position:absolute;inset:0}
+.zona-campo{position:absolute;border:0;background:transparent;padding:0;cursor:pointer;
+  border-radius:2px;transition:background .1s}
+.zona-campo:hover{background:rgba(14,92,70,.16);outline:1.5px solid var(--brand)}
+.zona-campo.vacia{border:1.5px dashed var(--danger);background:rgba(220,38,38,.07)}
+.hoja-btn{border:1px solid var(--border);background:var(--surface);width:24px;height:24px;
+  border-radius:5px;font:inherit;font-size:12px;cursor:pointer;margin-left:3px}
+.hoja-btn.on{background:var(--brand);color:#fff;border-color:var(--brand)}
+.edicion-flotante{position:absolute;z-index:30;background:var(--surface);border:1px solid var(--border-strong);
+  border-radius:8px;box-shadow:var(--shadow-lg);padding:10px;min-width:250px;margin-top:4px}
+.edicion-flotante.arriba{transform:translateY(-100%);margin-top:-6px}
+.ed-tit{font-size:11px;color:var(--text-2);margin-bottom:6px;display:flex;justify-content:space-between;
+  align-items:center;gap:8px;font-weight:600}
+.ed-x{border:0;background:none;cursor:pointer;font-size:16px;line-height:1;color:var(--text-3)}
+.ed-fila{display:flex;gap:6px}
+.ed-fila input{flex:1;min-width:0;padding:7px 9px;border:1px solid var(--border);border-radius:6px;
+  font:inherit;font-size:13px}
+.btn-min{padding:5px 12px;font-size:12px}
+
+/* ordenar hojas, con arrastre */
+.org-zona{border:1.5px dashed var(--border-strong);border-radius:var(--radius);padding:18px;
+  text-align:center;margin:8px 0 12px}
+.org-lista{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-bottom:12px}
+.org-hoja{border:1px solid var(--border);border-radius:var(--radius);padding:8px;background:var(--surface);
+  position:relative;text-align:center;cursor:grab;transition:box-shadow .12s,transform .12s}
+.org-hoja:hover{box-shadow:var(--shadow-md)}
+.org-hoja:active{cursor:grabbing}
+.org-hoja.arrastrando{opacity:.45;transform:scale(.97);outline:2px dashed var(--brand)}
+.org-hoja img{width:100%;height:auto;border:1px solid var(--border);transition:transform .15s;
+  pointer-events:none}
+.org-cargando{width:100%;height:180px;background:var(--surface-2);border-radius:4px}
+.org-n{position:absolute;top:4px;left:4px;background:var(--brand);color:#fff;border-radius:5px;
+  font-size:11px;padding:1px 6px;font-weight:700}
+.org-nom{font-size:10px;color:var(--text-3);margin:5px 0 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.org-btns{display:flex;justify-content:center;gap:4px}
+.org-btns button{border:1px solid var(--border);background:var(--surface);width:28px;height:25px;
+  border-radius:5px;cursor:pointer;font-size:13px;line-height:1}
+.org-btns button:hover{background:var(--brand-weak);border-color:var(--brand)}
+
+/* ---- visor: gestos y chulitos por casilla (v19) ---- */
+.hoja-scroll{touch-action:none;cursor:grab}
+.hoja-scroll.arrastrando{cursor:grabbing;user-select:none}
+.casilla-color{padding:0;font:inherit;cursor:pointer}
+.casilla-color .cas-tic{position:absolute;right:1px;top:50%;transform:translateY(-50%);
+  font-size:11px;line-height:1;font-weight:800;pointer-events:none}
+.casilla-color.revisada{border-style:solid;border-width:2px}
+.casilla-color.rev-ok{border-color:var(--ok)}
+.casilla-color.rev-ok .cas-tic{color:var(--ok)}
+.casilla-color.rev-mal{border-color:var(--danger);border-style:dashed}
+.casilla-color.rev-mal .cas-tic{color:var(--danger)}
+.casilla-color:focus-visible{outline:2px solid var(--brand);outline-offset:1px}
+
+/* ---- casillas y marcas sin pisarse (v21) ---- */
+.marca-campo.sobre-casilla{opacity:.35;background:transparent;
+  margin:-4px;padding:4px;border-style:dotted}
+/* La marca nunca se come el clic de la casilla que tiene debajo. */
+.marca-campo{pointer-events:none}
+.casilla-color{pointer-events:auto;z-index:3}
+.cas-tic.apagado{opacity:.28}
+.casilla-color:hover .cas-tic.apagado{opacity:.75}
+
+/* ---- entrega del ordenador al verificador (v23) ---- */
+.org-hoja.volando{transition:transform .5s cubic-bezier(.34,.9,.3,1),
+  opacity .5s ease,box-shadow .5s ease;pointer-events:none;box-shadow:var(--shadow-lg)}
+.org-sello{position:fixed;z-index:9999;width:64px;height:64px;margin:-32px 0 0 -32px;
+  border-radius:50%;background:var(--brand);color:#fff;display:flex;align-items:center;
+  justify-content:center;transform:scale(0);opacity:0;
+  transition:transform .45s cubic-bezier(.2,1.5,.4,1),opacity .3s ease;
+  box-shadow:0 10px 30px rgba(14,92,70,.45)}
+.org-sello.late{transform:scale(1);opacity:1;animation:latido 1s ease-in-out infinite}
+.org-sello svg{stroke:#fff}
+@keyframes latido{0%,100%{box-shadow:0 10px 30px rgba(14,92,70,.45)}
+  50%{box-shadow:0 10px 30px rgba(14,92,70,.45),0 0 0 14px rgba(14,92,70,.12)}}
+@media (prefers-reduced-motion: reduce){
+  .org-hoja.volando{transition:none}
+  .org-sello{transition:none;animation:none}
+}
+
+/* ---- chulito fuera del recuadro y rejilla forzada (v24) ---- */
+.casilla-color{overflow:visible}
+.casilla-color .cas-tic{position:absolute;right:-9px;top:50%;transform:translateY(-50%);
+  width:15px;height:15px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;font-size:10px;line-height:1;font-weight:900;
+  background:var(--surface);border:1.5px solid currentColor;box-shadow:var(--shadow-sm)}
+.casilla-color.verde .cas-tic{color:var(--ok)}
+.casilla-color.amarillo .cas-tic{color:var(--warn)}
+.casilla-color.rojo .cas-tic{color:var(--danger)}
+.cas-tic.apagado{opacity:.45;background:var(--surface-2)}
+.casilla-color:hover .cas-tic{opacity:1;transform:translateY(-50%) scale(1.15)}
+.casilla-color.rev-ok .cas-tic{background:var(--ok);color:#fff;border-color:var(--ok)}
+.casilla-color.rev-mal .cas-tic{background:var(--danger);color:#fff;border-color:var(--danger)}
+.casilla-color.forzada{border-style:dashed}
+
+/* ---- avisos del formulario (v27) ---- */
+.campo.con-aviso input{border-color:var(--warn);background:var(--warn-bg)}
+.aviso-campo{display:block;font-size:11px;color:var(--warn);margin-top:3px;line-height:1.3}
+.ayuda.aviso{color:var(--warn)}
+
+/* ---- bloque de autocompletado (v28) ---- */
+.auto-cerrado{display:flex;align-items:center;gap:10px;cursor:pointer;padding:12px 14px}
+.auto-cerrado:hover{border-color:var(--brand)}
+.auto-cerrado span:first-of-type{flex:1;font-size:13px;color:var(--text-2)}
+.auto-zonas{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;margin:4px 0 2px}
+.auto-doc{display:flex;align-items:center;gap:10px;border:1.5px dashed var(--border-strong);
+  border-radius:var(--radius);padding:12px;transition:border-color .15s,background .15s}
+.auto-doc.encima{border-color:var(--brand);background:var(--brand-weak)}
+.auto-doc.puesto{border-style:solid;border-color:var(--ok);background:var(--ok-bg)}
+.auto-txt{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.auto-txt b{font-size:13px}
+.auto-txt span{font-size:11px;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.auto-tic{width:26px;height:26px;border-radius:50%;background:var(--ok);color:#fff;
+  display:flex;align-items:center;justify-content:center;flex:0 0 auto;
+  animation:aparece .35s cubic-bezier(.2,1.5,.4,1)}
+.auto-tic svg{stroke:#fff;stroke-width:3}
+@keyframes aparece{from{transform:scale(0)}to{transform:scale(1)}}
+.auto-x{border:0;background:none;cursor:pointer;font-size:18px;line-height:1;color:var(--text-3);padding:0 2px}
+.auto-x:hover{color:var(--danger)}
+@media (prefers-reduced-motion: reduce){.auto-tic{animation:none}}

@@ -7,6 +7,11 @@
    ================================================================ */
 
 /* ---------- iconos SVG (trazo estilo lucide) ---------- */
+/* Versión visible en la pantalla. Sirve para lo más aburrido y lo más
+   útil: saber si el navegador está corriendo el código que acabas de
+   copiar o uno viejo que quedó en caché. */
+const APP_VERSION = "v32";
+
 function svg(nombre, s) {
   s = s || 15;
   const P = {
@@ -31,14 +36,25 @@ function svg(nombre, s) {
     updown: '<path d="m7 9 5-5 5 5M7 15l5 5 5-5"/>',
     zap: '<path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/>',
     wifiOff: '<path d="m2 2 20 20M8.5 16.5a5 5 0 0 1 7 0M5 12.5a10 10 0 0 1 5.2-2.7M12 20h.01M19 12.5a10 10 0 0 0-2.6-1.8"/>',
+    square: '<rect x="4" y="4" width="16" height="16" rx="3"/>',
+    minus: '<path d="M6 12h12"/>',
+    shield: '<path d="M12 3 4 6v6c0 4.5 3.2 7.9 8 9 4.8-1.1 8-4.5 8-9V6l-8-3z"/>',
+    edit: '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>',
+    salir: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5M21 12H9"/>',
+    file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>',
+    gauge: '<path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M12 3a9 9 0 0 1 9 9M3 12a9 9 0 0 1 4-7.5M14.2 9.8 19 5"/>',
+    rotate: '<path d="M3 12a9 9 0 1 1 3 6.7"/><path d="M3 21v-6h6"/>',
   };
   return '<svg width="' + s + '" height="' + s + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + (P[nombre] || "") + '</svg>';
 }
 
 /* ---------- estado de la interfaz ---------- */
-let resumen = { total: 0, activos: 0, pendientes: 0, urgentes: 0, umbralUrgencia: 15, cola: [] };
+let resumen = { total: 0, activos: 0, pendientes: 0, devueltos: 0, sinRespuesta: 0,
+  urgentes: 0, umbralAviso: 2, umbralUrgencia: 15, cola: [] };
 let clientes = [];
 let actividad = [];
+let metricas = { muestras: 0, promedioDias: null, medianaDias: null, conDevolucion: 0, tasaDevolucion: 0, motivos: [] };
+let usuario = null;
 let vista = "resumen";
 let filtro = "Todos";
 let orden = { col: "prioridad", dir: "desc" };
@@ -56,15 +72,21 @@ async function api(ruta, opciones) {
 
 async function refrescar() {
   try {
-    const [r, c, a] = await Promise.all([
-      api("/resumen"), api("/clientes"), api("/actividad"),
+    const [r, c, a, m, y] = await Promise.all([
+      api("/resumen"), api("/clientes"), api("/actividad"), api("/metricas"), api("/auth/yo"),
     ]);
-    resumen = r; clientes = c; actividad = a;
+    resumen = r; clientes = c; actividad = a; metricas = m; usuario = y.usuario;
     render();
   } catch (e) {
+    if (/sesi/i.test(e.message)) { location.href = "/login.html"; return; }
     render();
     toast("wifiOff", "No se pudo conectar con el servidor: " + e.message);
   }
+}
+
+async function salir() {
+  try { await api("/auth/salir", { method: "POST" }); } catch (e) { /* igual salimos */ }
+  location.href = "/login.html";
 }
 
 /* ---------- utilidades ---------- */
@@ -101,6 +123,49 @@ async function volverPendiente(id) {
     toast("clock", c.nombre + " volvió a pendiente");
   } catch (e) { toast("alert", e.message); }
 }
+function pedirDevolucion(id) {
+  const c = clientes.find(function (x) { return x.id === id; });
+  if (!c) return;
+  const sugerencias = [
+    "Nombre distinto al de la cédula",
+    "Número de cédula ilegible o tachado",
+    "Casilla obligatoria vacía",
+    "Correo de facturación equivocado",
+    "CIIU distinto al del RUT",
+    "Escaneo ilegible",
+    "Falta un documento",
+  ];
+  document.getElementById("zonaModal").innerHTML =
+    '<div class="scrim" onclick="cerrarModal()"></div>' +
+    '<div class="dialogo" role="dialog" aria-modal="true">' +
+    '<h3>Devolvieron la creación de ' + esc(c.nombre) + '</h3>' +
+    '<p>Anota por qué. Es lo único que después te dice qué error te está costando más tiempo.</p>' +
+    '<div class="campo"><label for="motivo">Motivo</label>' +
+    '<input type="text" id="motivo" list="motivosComunes" placeholder="¿Qué te dijeron?"></div>' +
+    '<datalist id="motivosComunes">' +
+    sugerencias.map(function (m) { return '<option value="' + esc(m) + '">'; }).join("") +
+    '</datalist>' +
+    '<div class="fila-btn">' +
+    '<button class="btn btn-ghost" onclick="cerrarModal()">Cancelar</button>' +
+    '<button class="btn btn-danger" onclick="devolver(\'' + c.id + '\')">Guardar devolución</button>' +
+    '</div></div>';
+  const inp = document.getElementById("motivo");
+  inp.focus();
+  inp.addEventListener("keydown", function (e) { if (e.key === "Enter") devolver(c.id); });
+}
+
+async function devolver(id) {
+  const motivo = document.getElementById("motivo").value.trim();
+  try {
+    const c = await api("/clientes/" + id + "/devolucion", {
+      method: "POST", body: JSON.stringify({ motivo: motivo }),
+    });
+    cerrarModal();
+    await refrescar();
+    toast("undo", "Devolución anotada: " + c.nombre);
+  } catch (e) { toast("alert", e.message); }
+}
+
 function pedirEliminar(id) {
   const c = clientes.find(function (x) { return x.id === id; });
   if (!c) return;
@@ -170,6 +235,7 @@ function abrirForm(id) {
     '<div class="seg">' +
     '<button id="segPend" onclick="setFormEstado(\'Pendiente\')">' + svg("clock", 14) + ' Pendiente</button>' +
     '<button id="segAct" onclick="setFormEstado(\'Activo\')">' + svg("checkCircle", 14) + ' Activo</button>' +
+    '<button id="segDev" onclick="setFormEstado(\'Devuelto\')">' + svg("rotate", 14) + ' Devuelta</button>' +
     '</div>' +
     '<p class="ayuda">Pendiente: la creación fue enviada pero aún no tiene código de compra.</p></div>' +
     '<div class="campo"><label>Fecha de envío de la creación</label>' +
@@ -196,10 +262,11 @@ function abrirForm(id) {
 }
 function setFormEstado(e) { formEstado = e; pintarSeg(); }
 function pintarSeg() {
-  const p = document.getElementById("segPend"), a = document.getElementById("segAct");
+  const p = document.getElementById("segPend"), a = document.getElementById("segAct"), d = document.getElementById("segDev");
   if (!p || !a) return;
   p.className = formEstado === "Pendiente" ? "on-pend" : "";
   a.className = formEstado === "Activo" ? "on-act" : "";
+  if (d) d.className = formEstado === "Devuelto" ? "on-dev" : "";
 }
 async function guardarForm() {
   const nombre = document.getElementById("fNombre").value.trim();
@@ -248,8 +315,11 @@ function render() {
   resumen.cola.forEach(function (c) { rankMap[c.id] = c.prioridad; });
 
   const items = [
-    { id: "resumen", ico: "grid", txt: "Resumen", badge: resumen.urgentes > 0 ? resumen.urgentes : null },
+    { id: "verificar", ico: "shield", txt: "Verificar", badge: null },
+    { id: "diligenciar", ico: "edit", txt: "Diligenciar", badge: null },
+    { id: "resumen", ico: "grid", txt: "Resumen", badge: resumen.sinRespuesta > 0 ? resumen.sinRespuesta : null },
     { id: "clientes", ico: "list", txt: "Clientes", badge: resumen.total },
+    { id: "proceso", ico: "gauge", txt: "Proceso", badge: null },
   ];
   document.getElementById("navLateral").innerHTML = items.map(function (it) {
     return '<button class="nav-item' + (vista === it.id ? " on" : "") + '" onclick="setVista(\'' + it.id + '\')">' +
@@ -258,10 +328,66 @@ function render() {
   document.getElementById("navMovil").innerHTML = items.map(function (it) {
     return '<button class="' + (vista === it.id ? "on" : "") + '" onclick="setVista(\'' + it.id + '\')">' + svg(it.ico, 17) + it.txt + '</button>';
   }).join("");
-  document.getElementById("tituloVista").textContent = vista === "resumen" ? "Resumen" : "Clientes";
+  const titulos = { verificar: "Verificar un paquete", diligenciar: "Llenar el formato", resumen: "Resumen", clientes: "Clientes", proceso: "Cómo va el proceso" };
+  document.getElementById("tituloVista").textContent = titulos[vista] || "Resumen";
+  document.getElementById("barraBusqueda").style.display = vista === "clientes" ? "" : "none";
+  document.getElementById("btnNuevo").style.display = (vista === "verificar" || vista === "diligenciar") ? "none" : "";
+  const pie = document.getElementById("usuarioActivo");
+  if (pie) pie.textContent = usuario || "";
 
   const zona = document.getElementById("vista");
-  zona.innerHTML = vista === "resumen" ? htmlResumen(rankMap) : htmlClientes(rankMap);
+  /* Sin comprobar ver.montado: montarHojas() mira el DOM y no hace
+     nada si ya está. Así, si un render() posterior reescribe el
+     contenedor, el visor se vuelve a montar solo en vez de quedarse
+     en blanco hasta que recargues. */
+  if (vista === "verificar" && ver && ver.analisis) {
+    setTimeout(montarHojas, 0);
+  }
+  zona.innerHTML =
+    vista === "verificar" ? htmlVerificar() :
+    vista === "diligenciar" ? htmlDiligenciar() :
+    vista === "proceso" ? htmlProceso() :
+    vista === "clientes" ? htmlClientes(rankMap) : htmlResumen(rankMap);
+}
+
+function htmlProceso() {
+  const m = metricas;
+  const dato = function (v, unidad) { return v == null ? "—" : v + (unidad || ""); };
+
+  const kpis = '<div class="kpis">' +
+    kpi("Días promedio en aprobar", dato(m.promedioDias), "clock",
+      m.muestras ? "sobre " + m.muestras + " creaciones aprobadas" : "aún no hay ninguna aprobada con fecha") +
+    kpi("Mediana", dato(m.medianaDias), "gauge",
+      m.muestras ? "la mitad tardó menos que esto" : "—") +
+    kpi("La que más tardó", dato(m.peorDias), "alert",
+      m.mejorDias != null ? "la más rápida: " + m.mejorDias + " días" : "—", m.peorDias != null && m.peorDias > resumen.umbralUrgencia) +
+    kpi("Devueltas alguna vez", m.conDevolucion, "rotate", m.tasaDevolucion + "% de tus clientes") +
+    '</div>';
+
+  let motivos;
+  if (!m.motivos.length) {
+    motivos = '<div class="panel-vacio"><div class="ico">' + svg("checkCircle", 22) + '</div>' +
+      '<p class="t">Sin devoluciones anotadas</p>' +
+      '<p class="s">Cuando te devuelvan una creación, anótala desde la lista de clientes. ' +
+      'Con cinco o seis ya vas a ver cuál error te está costando el tiempo.</p></div>';
+  } else {
+    const tope = Math.max.apply(null, m.motivos.map(function (x) { return x.veces; }));
+    motivos = '<div class="barras">' + m.motivos.map(function (x) {
+      return '<div class="barra-fila">' +
+        '<div class="barra-etq">' + esc(x.motivo) + '</div>' +
+        '<div class="barra-riel"><div class="barra" style="width:' + Math.round(x.veces / tope * 100) + '%"></div></div>' +
+        '<div class="barra-n num">' + x.veces + '</div></div>';
+    }).join("") + '</div>';
+  }
+
+  return kpis +
+    '<div class="panel"><div class="panel-head"><h2>Por qué te devuelven</h2>' +
+    '<span class="hint">de lo que has anotado</span></div>' + motivos + '</div>' +
+    '<div class="panel nota-proceso">' + svg("gauge", 16) +
+    '<div><strong>Este es el dato que nadie más tiene.</strong> El trámite pasa por varias áreas y ' +
+    'nadie mide cuánto tarda de punta a punta, porque nadie está en los dos extremos. Tú sí. ' +
+    'Con dos o tres meses de historia, esta pantalla deja de ser una curiosidad y pasa a ser el ' +
+    'argumento con el que se pide cambiar algo.</div></div>';
 }
 
 function kpi(lbl, num, ico, sub, alerta) {
@@ -278,7 +404,8 @@ function htmlResumen(rankMap) {
     kpi("Clientes registrados", s.total, "users", s.activos + " activos · " + s.pendientes + " pendientes") +
     kpi("Con código activo", s.activos, "checkCircle", s.total ? Math.round(s.activos / s.total * 100) + "% del total" : "—") +
     kpi("Esperando código", s.pendientes, "clock", s.pendientes ? "el más antiguo encabeza la cola" : "sin pendientes") +
-    kpi("Más de " + s.umbralUrgencia + " días", s.urgentes, "alert", s.urgentes ? "requieren seguimiento" : "todo dentro del plazo", s.urgentes > 0) +
+    kpi("Sin respuesta hace " + s.umbralAviso + "+ días", s.sinRespuesta, "alert",
+      s.sinRespuesta ? "hora de preguntar por ellas" : "nada por reclamar todavía", s.sinRespuesta > 0) +
     '</div>';
 
   let cola;
@@ -287,7 +414,7 @@ function htmlResumen(rankMap) {
       '<p class="t">Sin pendientes</p><p class="s">Todos los clientes registrados ya tienen código activo.</p></div>';
   } else {
     cola = s.cola.map(function (c) {
-      return '<div class="cola-item' + (c.urgente ? " urg" : "") + '">' +
+      return '<div class="cola-item' + (c.urgente ? " urg" : (c.sinRespuesta ? " avisa" : "")) + '">' +
         '<div class="rank num">' + c.prioridad + '</div>' +
         '<div class="cola-info">' +
         '<div class="cola-nombre">' + esc(c.nombre) + '</div>' +
@@ -315,7 +442,15 @@ function htmlResumen(rankMap) {
     }).join("");
   }
 
-  return kpis +
+  const devueltos = clientes.filter(function (c) { return c.estado === "Devuelto"; });
+  const avisoDevueltos = devueltos.length
+    ? '<div class="panel aviso-devueltos">' + svg("rotate", 16) +
+      '<div><strong>' + devueltos.length + (devueltos.length === 1 ? ' creación devuelta' : ' creaciones devueltas') +
+      ' esperando corrección:</strong> ' + devueltos.map(function (c) { return esc(c.nombre); }).join(", ") +
+      '. Corrige el paquete, vuelve a pasarlo por Verificar y el reenvío queda registrado solo.</div></div>'
+    : "";
+
+  return kpis + avisoDevueltos +
     '<div class="grid-2">' +
     '<div class="panel"><div class="panel-head"><h2>Cola de prioridad</h2>' +
     '<span class="hint">ordenada por días de espera</span></div>' + cola + '</div>' +
@@ -353,6 +488,7 @@ function htmlClientes(rankMap) {
 
   const nA = clientes.filter(function (c) { return c.estado === "Activo"; }).length;
   const nP = clientes.filter(function (c) { return c.estado === "Pendiente"; }).length;
+  const nD = clientes.filter(function (c) { return c.estado === "Devuelto"; }).length;
 
   function tab(val, txt, n) {
     return '<button class="tab' + (filtro === val ? " on" : "") + '" onclick="setFiltro(\'' + val + '\')">' + txt +
@@ -375,27 +511,35 @@ function htmlClientes(rankMap) {
   } else {
     cuerpo = lista.map(function (c) {
       const activo = c.estado === "Activo";
+      const devuelto = c.estado === "Devuelto";
       const rank = rankMap[c.id];
-      return '<tr>' +
+      const punto = activo ? "ok" : devuelto ? "danger" : c.urgente ? "danger" : c.sinRespuesta ? "warn" : "warn";
+      const etiqueta = activo ? "Activo" : devuelto ? "Devuelta" : c.urgente ? "Urgente" : "Pendiente";
+      return '<tr' + (devuelto ? ' class="fila-devuelta"' : "") + '>' +
         '<td class="num" style="width:44px;color:var(--text-3)">' + (rank ? ("#" + rank) : "—") + '</td>' +
-        '<td class="c-nombre">' + esc(c.nombre) + '</td>' +
+        '<td class="c-nombre">' + esc(c.nombre) +
+        (c.intentos > 1 ? '<span class="etq intentos" title="Veces enviada">' + c.intentos + 'º envío</span>' : "") + '</td>' +
         '<td class="c-tipo">' + (c.tipo ? esc(c.tipo) : '<span class="sin-dato">sin definir</span>') + '</td>' +
-        '<td><span class="estado"><span class="dot ' + (activo ? "ok" : (c.urgente ? "danger" : "warn")) + '"></span>' +
-        (activo ? "Activo" : (c.urgente ? "Urgente" : "Pendiente")) + '</span></td>' +
+        '<td><span class="estado"><span class="dot ' + punto + '"></span>' + etiqueta + '</span></td>' +
         '<td class="c-fecha num">' +
         (activo
-          ? (c.fechaActivacion ? ("Activo desde " + fmt(c.fechaActivacion)) : "Código creado")
+          ? (c.fechaActivacion
+            ? ("Activo desde " + fmt(c.fechaActivacion) + (c.diasHastaActivar != null ? " · tardó " + c.diasHastaActivar + "d" : ""))
+            : "Código creado")
           : (c.fechaEnvio ? fmt(c.fechaEnvio) : '<span class="sin-dato">sin fecha</span>')) +
         '</td>' +
         '<td style="text-align:right">' +
         (!activo && c.diasEspera != null
-          ? '<span class="pill-dias num' + (c.urgente ? " rojo" : "") + '">' + c.diasEspera + ' ' + (c.diasEspera === 1 ? "día" : "días") + '</span>'
+          ? '<span class="pill-dias num' + (c.urgente ? " rojo" : (c.sinRespuesta ? " ambar" : "")) + '">' + c.diasEspera + ' ' + (c.diasEspera === 1 ? "día" : "días") + '</span>'
           : '<span style="color:var(--text-3)">—</span>') +
         '</td>' +
-        '<td style="width:120px"><div class="acciones">' +
+        '<td style="width:150px"><div class="acciones">' +
         (activo
           ? '<button class="ico-btn" title="Volver a pendiente" onclick="volverPendiente(\'' + c.id + '\')">' + svg("undo", 14) + '</button>'
-          : '<button class="ico-btn verde" title="Activar código" onclick="activar(\'' + c.id + '\')">' + svg("check", 15) + '</button>') +
+          : '<button class="ico-btn verde" title="Le dieron código" onclick="activar(\'' + c.id + '\')">' + svg("check", 15) + '</button>') +
+        (!activo && !devuelto
+          ? '<button class="ico-btn ambar" title="Me la devolvieron" onclick="pedirDevolucion(\'' + c.id + '\')">' + svg("rotate", 14) + '</button>'
+          : "") +
         '<button class="ico-btn" title="Editar" onclick="abrirForm(\'' + c.id + '\')">' + svg("pencil", 14) + '</button>' +
         '<button class="ico-btn rojo" title="Eliminar" onclick="pedirEliminar(\'' + c.id + '\')">' + svg("trash", 14) + '</button>' +
         '</div></td></tr>';
@@ -405,6 +549,7 @@ function htmlClientes(rankMap) {
   return '<div class="toolbar"><div class="tabs">' +
     tab("Todos", "Todos", clientes.length) +
     tab("Pendiente", "Pendientes", nP) +
+    tab("Devuelto", "Devueltas", nD) +
     tab("Activo", "Activos", nA) +
     '</div></div>' +
     '<div class="tabla-wrap"><table>' +
@@ -425,6 +570,7 @@ document.addEventListener("keydown", function (e) {
   if (escribiendo) return;
   if (e.key === "/") { e.preventDefault(); document.getElementById("buscador").focus(); }
   if (e.key === "n" || e.key === "N") { e.preventDefault(); abrirForm(); }
+  if (e.key === "v" || e.key === "V") { e.preventDefault(); setVista("verificar"); }
 });
 
 /* ---------- inicio ---------- */
@@ -432,6 +578,46 @@ document.getElementById("icoSearch").innerHTML = svg("search", 14);
 document.getElementById("icoPlus").innerHTML = svg("plus", 14);
 document.getElementById("btnExportar").innerHTML = svg("download", 13) + " Exportar";
 document.getElementById("btnImportar").innerHTML = svg("upload", 13) + " Importar";
+document.getElementById("btnSalir").innerHTML = svg("salir", 13) + " Salir";
 document.getElementById("fechaHoy").textContent = fmt(hoyISO());
+const nodoVersion = document.getElementById("appVersion");
+if (nodoVersion) nodoVersion.textContent = APP_VERSION;
+document.getElementById("inputPdf").addEventListener("change", function () {
+  if (this.files && this.files[0]) {
+    const archivo = this.files[0];
+    ver.archivoOriginal = archivo;
+    /* Vaciar el input: si no, volver a elegir el MISMO archivo no
+       dispara change y parece que la aplicación se colgó. */
+    this.value = "";
+    recibirArchivo(archivo);
+  }
+});
+
+/* Cualquier error que nadie atrape se muestra en pantalla. Un fallo
+   silencioso en JavaScript deja la interfaz a medio pintar sin decir
+   nada, y desde afuera es indistinguible de «no funciona». */
+function mostrarFallo(texto) {
+  let banda = document.getElementById("bandaFallo");
+  if (!banda) {
+    banda = document.createElement("div");
+    banda.id = "bandaFallo";
+    banda.className = "banda-fallo";
+    document.body.appendChild(banda);
+  }
+  banda.innerHTML =
+    '<div class="bf-txt"><b>Algo falló · ' + APP_VERSION + '</b><pre>' + esc(texto) + '</pre></div>' +
+    '<button class="bf-x" onclick="this.parentNode.remove()">Cerrar</button>';
+}
+
+window.addEventListener("error", function (e) {
+  mostrarFallo((e.message || "error") + "\n" + (e.filename || "") + ":" + (e.lineno || "") + ":" + (e.colno || ""));
+});
+window.addEventListener("unhandledrejection", function (e) {
+  const r = e.reason;
+  mostrarFallo("Promesa rechazada: " + (r && r.message ? r.message : String(r)) +
+               (r && r.stack ? "\n" + r.stack : ""));
+});
+activarSoltar();
+vista = "verificar";  // la puerta de entrada es revisar un paquete
 render();      // primer pintado con estado vacío
 refrescar();   // carga real desde la API

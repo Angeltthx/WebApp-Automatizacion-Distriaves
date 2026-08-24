@@ -7,12 +7,20 @@ const listar = (req, res) =>
 
 const resumen = (req, res) => res.json(servicio.resumen());
 
+const metricas = (req, res) => res.json(servicio.metricas());
+
 const crear = (req, res) => res.status(201).json(servicio.crear(req.body));
+
+const registrarEnvio = (req, res) => res.status(201).json(servicio.registrarEnvio(req.body));
 
 const actualizar = (req, res) => res.json(servicio.actualizar(req.params.id, req.body));
 
 const cambiarEstado = (req, res) =>
   res.json(servicio.cambiarEstado(req.params.id, req.body.estado));
+
+const devolver = (req, res) => res.json(servicio.devolver(req.params.id, req.body.motivo));
+
+const historial = (req, res) => res.json(servicio.historial(req.params.id));
 
 const eliminar = (req, res) => {
   servicio.eliminar(req.params.id);
@@ -30,4 +38,7 @@ const importar = (req, res) => res.json(servicio.importar(req.body));
 
 const actividad = (req, res) => res.json(servicio.actividad());
 
-module.exports = { listar, resumen, crear, actualizar, cambiarEstado, eliminar, exportar, importar, actividad };
+module.exports = {
+  listar, resumen, metricas, crear, registrarEnvio, actualizar,
+  cambiarEstado, devolver, historial, eliminar, exportar, importar, actividad,
+};

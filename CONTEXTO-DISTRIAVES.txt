@@ -1,0 +1,1613 @@
+================================================================================
+DISTRIAVES · VERIFICADOR Y SEGUIMIENTO DE CREACIÓN DE CLIENTES
+Documento de contexto · versión del código: v32
+================================================================================
+
+Este archivo tiene tres partes:
+
+  PARTE 1 — Para humanos. Qué resuelve y cómo funciona por dentro.
+  PARTE 2 — Para una IA que continúe el proyecto. Estado, reglas del
+            juego, qué falta y qué datos hacen falta para avanzar.
+  PARTE 3 — Registro de errores cometidos, para no repetirlos.
+
+Si eres una IA leyendo esto: lee las tres. La 3 es la más importante.
+
+
+================================================================================
+PARTE 1 — PARA HUMANOS
+================================================================================
+
+--------------------------------------------------------------------------------
+1.1 El problema
+--------------------------------------------------------------------------------
+
+En Distraves, dar de alta un cliente nuevo exige mandar un paquete de
+documentos: las 3 hojas del formato de conocimiento FO-901, la cédula,
+el RUT y una foto del local. Se envía por un formulario de Microsoft
+Forms.
+
+Dos problemas reales, y el segundo es el caro:
+
+1. El paquete se devuelve por cosas mínimas: una casilla sin marcar, un
+   apellido escrito "Montaña" donde la cédula dice "Montaño", un campo
+   en blanco. Cada devolución son días perdidos.
+
+2. Nadie mide cuánto tarda el trámite de punta a punta, porque nadie
+   está en los dos extremos: quien lo manda no ve la aprobación y quien
+   aprueba no ve cuándo se mandó. El usuario de esta herramienta sí está
+   en los dos.
+
+--------------------------------------------------------------------------------
+1.2 La idea de diseño
+--------------------------------------------------------------------------------
+
+Una herramienta que pida "además" anotar el cliente en una lista no se
+usa nunca. Por eso el orden está invertido:
+
+    revisas el paquete  →  si pasa, el envío queda registrado solo
+
+Anotar el cliente no es un paso extra: es la consecuencia de haberlo
+revisado. Y al confirmar, se abre el formulario de Microsoft en otra
+pestaña para que sueltes el PDF ahí mismo, porque registrar y no enviar
+es el olvido más caro que existe (queda un trámite contando días que
+nunca salió).
+
+Tres principios que gobiernan todo el código. Si tocas el proyecto,
+respétalos:
+
+  a) MEDIR O CALLAR. La herramienta solo abre una marca cuando midió
+     algo. Si la revisión sale bien, o si no pudo hacerla, no dice nada.
+     Una casilla para marcar a mano no evita un olvido: lo traslada, y
+     encima cobra un clic en cada paquete.
+
+  b) NUNCA FINGIR PRECISIÓN. Si el ajuste no es de fiar, se dibuja la
+     franja de la fila de lado a lado en vez de un recuadro angosto. Un
+     recuadro en el lugar equivocado destruye la confianza más rápido de
+     lo que uno correcto la construye.
+
+  c) NUNCA INVENTAR NÚMEROS. Todos los umbrales del código salen de
+     medir paquetes reales, y están anotados en los comentarios con el
+     dato del que salieron. Si no se puede medir, no se pone.
+
+--------------------------------------------------------------------------------
+1.3 Cómo funciona, técnicamente
+--------------------------------------------------------------------------------
+
+Stack: Node.js ≥22.5, Express, SQLite nativo (`node:sqlite`, sin ORM),
+pdf.js en el navegador. Frontend en JavaScript plano, sin framework ni
+build. Todo en español: nombres de variables, funciones y comentarios.
+
+El PDF NUNCA se sube al servidor. Todo el análisis ocurre en el
+navegador. Al servidor solo viaja el resultado (qué se revisó y qué se
+encontró), que no contiene datos del cliente.
+
+TUBERÍA DE ANÁLISIS (public/verificador.js)
+
+  1. pdf.js abre el PDF y renderiza cada página a un canvas de 800 px de
+     ancho.
+
+  2. Se miden píxeles por página:
+       tinta      → proporción de píxeles oscuros
+       medioTono  → ni blancos ni negros: escaneo lavado o borroso
+       color      → píxeles con saturación real: fotos
+       reglas     → filas con trazos horizontales largos: formularios
+       bandas     → tinta en 6 franjas horizontales, para ubicar firmas
+
+  3. Se clasifica cada página: formato / rut / documento / foto. La
+     clasificación se PROPONE y la confirma el usuario en las
+     miniaturas, porque el color no distingue la foto del local de una
+     cédula fotografiada sobre una mesa (medido: una cédula sobre madera
+     marcó 34% de color; una fachada de vidrio, 2.7%).
+
+  4. Se decide cuál hoja del formato es la 1/3, la 2/3 y la 3/3. Esto se
+     hace probando cada página contra las tres plantillas y quedándose
+     con el reparto que más calza en total. Las barras grises de sección
+     son 8, 4 y 2 según la hoja, así que la señal es fuerte.
+
+  5. Se ubica la rejilla de cada hoja (ver abajo) y, si el ajuste es
+     exacto, se mide la tinta dentro de cada casilla obligatoria para
+     detectar las que llegaron en blanco.
+
+  6. Si el cliente entregó el RUT descargado del portal de la DIAN, ese
+     PDF trae capa de texto y se lee EXACTO, sin OCR: cédula, NIT,
+     nombre, CIIU, correo, dirección. Si entregó una foto, no hay nada
+     que leer. Esto es lo que permite los cruces automáticos.
+
+  7. El catálogo de reglas (public/reglas.js) evalúa todo y produce la
+     lista de hallazgos.
+
+UBICACIÓN DE LOS RECUADROS (public/rejilla.js) — la parte difícil
+
+  Para dibujar un cuadro sobre "Nombre o Razón Social" hay que saber
+  dónde quedó ese campo EN TU FOTO: cada paquete llega con otra escala,
+  otro recorte y algo de inclinación. Una plantilla de coordenadas fijas
+  no sirve.
+
+  Lo que se hace:
+    · Se detectan las líneas horizontales del formulario sobre la imagen
+      real (binarización adaptativa por bloques de 48 px, y se prueban
+      varias pendientes para absorber la inclinación del papel).
+    · Se detectan las barras grises de sección, que a diferencia de las
+      filas NO son periódicas.
+    · Se busca la escala y el desplazamiento que hacen calzar lo
+      detectado sobre la plantilla de referencia (REFERENCIA, posiciones
+      como fracción del alto de la página).
+    · Solo se promete un recuadro EXACTO cuando los dos detectores
+      independientes (barras y filas) llegan al mismo sitio. Si
+      discrepan, se marca la franja de la fila.
+
+  Por qué tanta ceremonia: la rejilla del formato es casi periódica, así
+  que un calce corrido tres filas puntúa parecido al correcto. Sobre 24
+  paquetes reales eso daba 6 recuadros que se declaraban exactos estando
+  desviados.
+
+  Resultado medido sobre 24 paquetes (69 hojas de formato):
+      20 con recuadro exacto · 48 en modo franja · 1 sin ajuste posible.
+  Menos de un tercio consigue precisión de campo. Es la parte más floja
+  de la herramienta y conviene saberlo antes de confiar en ella.
+
+EL VISOR (public/verificar-ui.js)
+
+  · Sobre el documento va SOLO el contorno del recuadro. El nombre del
+    campo, el número y el botón viven en un margen a la derecha, unidos
+    por una línea guía. Motivo: los renglones del formato miden ~14 px
+    en pantalla y cualquier etiqueta encima tapa justo el dato que
+    señala.
+  · Los rótulos que se pisan se agrupan en un bloque y el bloque se
+    centra sobre el promedio de sus filas, para repartir el desvío hacia
+    arriba y hacia abajo (desvío máximo: 80 px → 40 px).
+  · Zoom hasta 300%. Los recuadros van en % del papel, así que se
+    acercan CON la hoja y siguen señalando lo mismo. El lienzo se
+    redibuja con pdf.js a la resolución nueva, no se estira (si se
+    estirara, la letra se vería más grande e igual de borrosa). Con la
+    hoja acercada se arrastra para moverse por ella.
+  · Botón "diagnóstico": dibuja encima las líneas detectadas (azul),
+    dónde caen las de la plantilla con la escala elegida (violeta) y las
+    barras ancla (naranja). Sirve para saber POR QUÉ un recuadro salió
+    mal en vez de discutirlo a ciegas.
+  · Cada hoja del formato tiene botones 1/3 · 2/3 · 3/3 para corregir a
+    mano el reparto; al cambiarlo, el ajuste se rehace al instante.
+
+BACKEND
+
+  Dependencia hacia abajo: rutas → controladores → servicios →
+  repositorios. El SQL vive SOLO en repositories/; cambiar SQLite por
+  Postgres toca esa carpeta y db/, nada más.
+
+  Se guarda: nombre del cliente, tipo de negocio, estado, fecha de
+  envío, fecha de activación, número de intentos y motivos de
+  devolución.
+
+  NO se guarda: el PDF, la cédula, el correo, la dirección ni nada leído
+  del RUT. Es deliberado: los clientes autorizaron el tratamiento de sus
+  datos a las empresas del grupo, no a una herramienta particular.
+  Guardar cédulas en infraestructura personal es un problema legal y
+  laboral que no vale la pena tener, y no hace falta para lo que la
+  herramienta resuelve.
+
+--------------------------------------------------------------------------------
+1.6 Transcripción de casillas (v10) · lo que sale del navegador
+--------------------------------------------------------------------------------
+
+Tres devoluciones frecuentes no se podían detectar midiendo tinta,
+porque no dependen de si la casilla está llena sino de QUÉ dice:
+
+  · el correo va en TRES sitios de la hoja 1 y los tres tienen que
+    llevar el mismo
+  · "Lista de precios" (hoja 3) tiene que decir CQ
+  · el nombre del negocio del formato tiene que aparecer en el letrero
+    de la foto del local
+
+La v10 recorta esas casillas del PDF y las manda a transcribir. El
+recorte va de raya a raya e incluye a propósito el rótulo impreso: le
+dice al lector qué casilla es y eso hace mucho más difícil confundirla.
+
+QUÉ SALE DEL NAVEGADOR. Recortes de casillas sueltas, nunca el PDF, y
+solo al pulsar "Leer las casillas". Son 8 imágenes por paquete: cuatro
+llevan datos personales (nombre, tres correos), una es la fachada del
+local y tres no llevan nada identificable (código postal, lista de
+precios, nombre del negocio).
+
+Esto rompe a propósito el principio de 1.3 de que nada sale del
+equipo. Es una decisión tomada con el trade-off a la vista: se cambia
+privacidad por detección. Lo que NO se negocia es la llave de la API,
+que vive en el servidor (src/services/ocrService.js). Si estuviera en
+el frontend, cualquiera que abra la consola se la lleva.
+
+CÓMO SE DECIDE. La transcripción nunca absuelve por sí sola:
+
+  · si no se ha transcrito, las reglas devuelven "na", no "ok"
+  · cuando acusan, enseñan el texto que leyeron, para que la decisión
+    la tome quien mira el papel
+  · las hojas sin recuadro exacto no se recortan: un recorte corrido
+    una fila manda a transcribir la casilla de al lado
+
+LÍMITE CONOCIDO. Si dos correos salen distintos no hay forma de saber
+si el error está en el formato o en la lectura. Un correo con una sola
+letra cambiada (cindy contra cindi) es indistinguible del ruido de
+transcripción. Lo que sí caza con soltura es el error grueso, que es
+el que devuelven de verdad.
+
+CONFIGURACIÓN. ANTHROPIC_API_KEY (obligatoria; sin ella el botón dice
+que falta y no se llama a nadie) y OCR_MODELO (opcional; por defecto
+claude-sonnet-5, verificado contra la documentación de la API en
+agosto de 2026).
+
+--------------------------------------------------------------------------------
+1.7 Mapa de casillas y semáforo (v11)
+--------------------------------------------------------------------------------
+
+DE DÓNDE SALE EL MAPA. No lo escribió nadie a mano. El usuario imprimió
+el FO-901, lo escaneó y marcó encima:
+    X roja     la casilla va escrita
+    circulito  grupo de opciones: va marcada UNA
+    X negra    la casilla va en blanco
+Ese PDF (para_usar_pdf.pdf) trae capa de texto, así que cada marca tiene
+posición exacta. Se tradujeron las 92 marcas al espacio de la plantilla
+y salieron 74 campos: 41 que van escritos, 8 grupos, 22 que van en
+blanco y 3 que quedan pendientes.
+
+Las cajas en X son las de la MARCA, no las de la celda entera. Medido:
+con la celda entera, "Cargo" daba 0.3710 vacío y 0.3739 escrito —no
+distingue—; con la caja de la marca, 0.0625 de diferencia.
+
+CÓMO SE DECIDE EL COLOR, sin inventar umbrales. Un umbral fijo de tinta
+no sirve: el mismo campo vacío da 0.03 en un escaneo limpio y 0.17 en
+uno gris. Pero el formato trae su propia referencia: los bloques del
+Aval y de Confirmación de Cartera van SIEMPRE en blanco. Son 22
+casillas que en cualquier paquete están vacías. Con ellas se ajusta, en
+ese mismo paquete, la recta
+
+    tinta_vacía_esperada ≈ a · tinta_del_formato_en_blanco + b
+
+y la dispersión que queda es el ruido del escaneo. Un campo se da por
+escrito si se sale de ahí. La referencia sale del papel que se mira,
+no de una calibración de otro día.
+
+LO QUE LA TINTA NO PUEDE, medido y no discutible:
+
+  · Sobre un paquete real, de 41 casillas escritas dejó 10 en rojo:
+    firmas, "DJ", "NA", "CA". Trazo corto sobre caja pequeña.
+  · Los CÍRCULOS DE OPCIÓN no se pueden leer. Miden 0.0094 del ancho:
+    7 píxeles y medio en el lienzo de análisis. En "Tipo de Documento"
+    de un paquete real, con la C.C. marcada, las cinco opciones dieron
+    C.C. 0.256, NIT 0.338, ID 0.356, C.E. 0.362, Pasaporte 0.356: la
+    marcada es LA MÁS CLARA. Cualquier regla sobre esos números acierta
+    por casualidad. Están fuera de la tinta a propósito.
+
+POR ESO LA TINTA ES EL FILTRO Y LA LECTURA ES EL JUEZ. Lo que sale
+verde se deja; lo amarillo, lo rojo y TODOS los grupos se recortan y se
+mandan a transcribir, y lo que diga la lectura pisa a la tinta. En un
+paquete real son ~24 recortes de 74, en tandas de 12.
+
+AÑADIDO EN LA v15: "Ciudad" (hoja 1). No venía marcada en el formato
+marcado —se olvidó— y se metió a mano con la caja medida entre las
+rayas verticales de su fila (0.520 y 0.697). Viene con "Bogotá" puesto
+por defecto, igual que "Municipio" con "Cundinamarca".
+
+PENDIENTES DEL MAPA:
+  · "Tipo de cliente" (Contado/Crédito, Vinculación/Actualización,
+    Persona Jurídica/Natural): el formato marcado trae solo UNA opción
+    de cada par. No se sabe dónde está la otra y no se inventa. Hace
+    falta un formato con las DOS opciones de cada par marcadas.
+  · "Ciudad" en la hoja 1: no lleva marca. Por la pinta se olvidó.
+  · "Cliente de:" (Solla / Transgraneles / Agrinal / Súper Pollos /
+    Delichicks): tampoco lleva marca.
+  Ninguno de los tres se valida. Una casilla sin marca en el formato
+  marcado se queda SIN REVISAR, no se da por vacía: dar por obligatorio
+  algo que no se dijo produciría rojos falsos.
+
+--------------------------------------------------------------------------------
+1.8 Diligenciar el formato (v12)
+--------------------------------------------------------------------------------
+
+QUÉ ES. Un cuestionario que pregunta campo por campo y imprime las
+respuestas encima del FO-901 en blanco. Sale un PDF de tres hojas para
+imprimir y que el cliente firme.
+
+POR QUÉ. Casi todo lo que revisa el verificador existe solo porque hoy
+el dato nace escrito a mano. Si nace digital, no hay casilla vacía, ni
+tres correos distintos, ni CA donde iba CQ. Los tres correos no es que
+se revisen: es que se copian solos y no se pueden escribir distintos.
+
+EMPEZAR DESDE EL RUT (v27). Se suelta el RUT digital de la DIAN y de
+ahí salen ocho campos: nombre o razón social, documento, tipo de
+documento, CIIU, dirección, departamento, ciudad y correo. Lo lee
+`rut.js`, el MISMO lector que usa la pestaña Verificar para cruzar
+datos; aquí se usa al revés, para rellenar. No sale nada del equipo.
+
+Solo se traen los campos que el RUT dice sin ambigüedad. El teléfono
+está ahí pero en dos casillas (41 y 45) y no siempre es el del
+negocio: se deja vacío antes que meter un número que nadie revisó.
+
+EL PAQUETE SALE COMPLETO (v28). El RUT y la cédula que se suben para
+autorrellenar quedan PEGADOS al final del PDF generado, en el orden del
+trámite: formato, RUT, cédula. Tenerlos y aun así pedir que se junten
+aparte no tenía sentido. Un adjunto ilegible no tumba el formato: se
+entrega el formato solo y la pantalla lo avisa.
+
+LAS FECHAS van en ISO por dentro (2026-08-03) porque es lo que entiende
+`<input type="date">`, y se IMPRIMEN en 03/08/2026, que es como se
+llena el formato a mano. Guardar el formato de pantalla y traducir al
+revés sería peor: cada navegador muestra la fecha según el idioma del
+sistema. El Día/Mes/Año viene con la fecha de hoy puesta.
+
+LA CÉDULA NO SE LEE, a propósito. Es una foto, no trae texto, y lo
+único que aportaría —número y nombre— ya viene en el RUT y coincide.
+Leerla con transcripción costaría una llamada a la API para confirmar
+algo que ya se sabe. Que las dos coincidan es trabajo de la pestaña
+Verificar, y ya lo hace.
+
+VALIDACIONES (v27). Se comprueba la FORMA, no si el dato es cierto: un
+correo sin arroba está mal seguro, uno bien escrito puede seguir siendo
+el equivocado. Correos, documentos, teléfonos, CIIU, código postal,
+fechas y lista de precios. Un campo VACÍO nunca se marca como error:
+de eso se encarga la cuenta de los que faltan, y pintar en rojo lo que
+todavía no has escrito es hostil.
+
+CAMPOS QUE SE COPIAN. Los tres correos son ESPEJO: el formato exige que
+sean iguales, así que no se pueden escribir distintos. El documento y
+el nombre del representante son SUGERENCIA: se copian del cliente
+porque casi siempre es la misma persona, pero si el cliente es una
+persona jurídica el NIT y la cédula del representante son distintos, y
+ahí se escriben a mano y ya no se vuelven a pisar.
+
+LO QUE NO RESUELVE, y hay que tenerlo presente:
+  · La firma y la huella siguen siendo a mano. El paquete sigue siendo
+    papel impreso, firmado y escaneado.
+  · El nombre del negocio contra el letrero de la foto sigue igual.
+  · Los paquetes que lleguen de otros comerciales seguirán llegando
+    manuscritos. El verificador NO sobra.
+  · Cambia el trámite: hoy el cliente ve llenar el formato delante de
+    él. Conviene confirmar que a quien revisa le sirve recibirlo ya
+    impreso.
+
+CÓMO SE IMPRIME. Encima del original, no rehaciéndolo. Rehacer el
+FO-901 milímetro a milímetro sería mucho más trabajo y cualquier
+diferencia con el original es motivo de devolución. Las coordenadas son
+las MISMAS del mapa (1.7); el PDF base es el mismo escaneo que se midió,
+así que su ajuste está fijo en AJUSTE_BASE y no hay que detectarlo.
+
+LO QUE SE RELLENA SOLO (v31). Bloque único al principio de
+formulario.js: RESPONSABLE_COMERCIAL, CIUDADES, CODIGOS_POSTALES,
+ZONAS_TRANSPORTE, GRUPOS_CLIENTE y ATAJOS. Está todo junto porque todo
+es de ESTA vendedora y ESTA zona: cuando cambie el vendedor o la ruta
+se toca ese bloque y nada más. Ninguno está clavado: todos salen como
+campo normal y se pueden cambiar en un paquete concreto.
+
+LOS ATAJOS NO SON LISTAS CERRADAS, y la diferencia importa. Un cliente
+puede estar en un barrio de Suba con otro código postal o en una ciudad
+que no está entre las cinco. Cerrarlos obligaría a tocar el código cada
+vez que aparezca un caso nuevo. Un atajo puede enseñar una cosa y
+escribir otra: la ruta se elige por barrio, "25-L104 (Suba)", y en el
+papel cae solo "25-L104". Hay prueba de eso.
+
+LOS DOS CÓDIGOS POSTALES son lo único del archivo que no se pudo medir
+ni deducir: una localidad de Bogotá NO tiene un código postal, tiene
+varios (Suba diez, Chapinero tres). El de Suba se sacó de los paquetes
+ya enviados; el de Chapinero es el de Chapinero Central, Chapinero
+Norte, Marly y Quinta Camacho. Los otros dos de esa localidad son
+110211 y 110221. Si aparece un cliente de otro barrio, va a mano.
+
+MUNICIPIO LLEVA EL DEPARTAMENTO. En la hoja 3, la casilla "Municipio"
+se rellena con el departamento de la ciudad (Bogotá -> Cundinamarca),
+que es como van los paquetes enviados. No está en SUGERENCIAS porque el
+valor no se copia sino que se TRADUCE, y eso no cabe en aquella tabla.
+Si la ciudad no está entre las conocidas no se toca nada: poner el
+departamento equivocado es peor que no poner ninguno.
+
+EL TELÉFONO Y EL ESTABLECIMIENTO VAN COMO SUGERENCIA, NO COMO ESPEJO.
+El fijo del negocio y el móvil de pedidos son distintos más veces de
+las que parece, y un cliente puede llamarse "Distribuidora Pérez
+S.A.S." con el local como "Asadero El Buen Sabor". Copiados se
+corrigen una vez; atados como espejo, nunca. Hay prueba que falla si
+alguien los mueve a ESPEJOS.
+
+LA FILA "Cliente de" (v31). No existía: ni en el mapa, ni en el
+cuestionario, ni en el verificador. Las cinco empresas van en la MISMA
+fila a distinta x, al revés que los tres grupos de "Tipo de cliente",
+que comparten x y cambian de y; por eso cada opción trae su propia `x`
+y el grupo la `y` común. Medidas sobre el PDF base a 150 ppp aislando
+cada círculo y exigiendo que fuera un ANILLO: hizo falta ese filtro
+porque las letras redondas de "Súper Pollos del Galpón" también son
+manchas huecas de tamaño parecido (12 px de ancho contra 16-18 de los
+círculos). El método se estrenó volviendo a medir cuatro círculos ya
+medidos a mano: las `y` salieron con menos de 0.0006 de diferencia.
+
+LA FIRMA ESTAMPADA (v31). public/firma/responsable.png, la firma de
+Olga Lucía Lemus recortada de un formato que ella firmó, limpiada por
+componentes conectados (fuera la línea del recuadro y las motas del
+papel), pasada a fondo transparente y guardada a 4x porque el original
+venía pequeño y salía dentado.
+
+ES UNA FIRMA DE VERDAD. Cualquiera que reciba el PDF puede extraer la
+imagen y ponerla en otro documento. Fue una decisión tomada a
+conciencia para no imprimir y escanear cada paquete. FIRMA_ESTAMPADA en
+false la apaga y el hueco vuelve a salir en blanco.
+
+`estamparFirma` se traga sus errores a propósito: si el PNG falta, el
+formato SALE IGUAL sin firma. Un paquete sin firma se arregla firmando;
+uno que no se genera deja a la vendedora sin nada. Eso hace que un
+fallo ahí sea MUDO, y por eso hay una prueba que genera el PDF y cuenta
+las imágenes de la hoja 3 CONTRA LAS DEL PDF BASE. La primera versión
+de esa prueba comprobaba "hay alguna imagen" y daba verdadero con la
+firma apagada: la hoja 3 ya trae el escaneo del formato en blanco.
+
+LA MUESTRA DE CADA LETRA (v32). Las tres opciones se enseñan escritas
+EN su propia letra y con el nombre del cliente que se está escribiendo.
+Hasta la v31 eran tres botones que ponían "Short Stack", "Gochi Hand" y
+"Permanent Marker" en la letra de la pantalla: se elegía una tipografía
+sin verla. Para eso hay tres @font-face en styles.css con el id de cada
+letra como font-family, apuntando a los MISMOS .ttf que incrusta el
+PDF; hay prueba de que ninguna falta, porque si falta una esa muestra
+sale en la letra del navegador y la pantalla enseñaría una cosa y el
+papel otra. El PDF sale bien igual, así que no se caería solo.
+
+El campo `escala` del catálogo es cuánto hay que agrandar cada muestra
+para que las tres se vean del mismo tamaño en pantalla. Sale de la
+misma cuenta que usa generarPdf para elegir el cuerpo dentro de la
+casilla, y hay prueba que lo recalcula: si se toca `sube` o `baja` sin
+actualizarlo, la muestra deja de parecerse al papel. Sin esto Gochi
+Hand se veía un 19% más pequeña en pantalla y salía más grande impresa,
+que es la peor combinación: la muestra desmintiendo al resultado.
+
+El cuerpo base son 15 px y no más: a 19 px un nombre completo se
+cortaba por la mitad en las tres tarjetas, y entonces la muestra ya no
+enseña la letra sino el corte.
+
+EL LAYOUT VA EN FLEX Y NO EN GRID a propósito, aunque el proyecto usa
+grid en trece sitios más. El motivo es poder COMPROBARLO: la
+herramienta con la que se revisan las pantallas aquí no soporta CSS
+Grid, y dar por bueno un layout sin haberlo visto es exactamente lo que
+el error #41 dice que no se haga.
+
+TRES LETRAS A ELEGIR (v30). Hasta la v29 la letra era una y estaba
+fija en el código. Ahora hay tres en el catálogo LETRAS de
+formulario.js y se eligen abajo del cuestionario; la elección se
+guarda en memoria y en localStorage, en ese orden de mando (si el
+navegador tiene localStorage bloqueado la elección sigue funcionando
+durante la sesión, solo que no sobrevive al cierre).
+
+  Letra              tinta   ancho   cómo es
+  Short Stack         1.00    1.00   la de la v29, y la de por defecto
+  Gochi Hand          1.20    0.88   gruesa y redonda; la más parecida
+  Permanent Marker    2.25    1.09   la más gruesa; versalitas
+
+«tinta» es cuánta pone cada una respecto de Short Stack con el mismo
+texto ("avella.lrosales@gmail.com 3108667424"), cada una a su cuerpo
+ajustado a la misma altura de casilla. «ancho», lo mismo para el largo
+de línea: solo manda en el correo.
+
+CÓMO SE ELIGIERON, y esto es lo que no hay que repetir: se bajaron
+catorce manuscritas de Google Fonts y se puso cada una AL LADO del
+escaneo real que trajo el usuario (la lección del error #41), no
+mirando muestras sueltas. Descartes, todos por medida:
+  · Gaegu Bold y Nanum Pen Script no traen ñ ni tildes.
+  · Sedgwick Ave, Sriracha, Caveat Brush y Kalam van inclinadas; la
+    letra del escaneo es derecha.
+  · Indie Flower (44% de la tinta de Short Stack), Architects Daughter
+    (71%), Coming Soon, Delius, Handlee, Mynerve y Shadows Into Light
+    Two son MÁS FLOJAS que la que ya había, así que no acercan nada.
+  · Rock Salt se lee peor que la letra a mano.
+
+LO QUE CUESTA PERMANENT MARKER, dicho a las claras: dibuja las
+minúsculas como versalitas, o sea escribe "ALEXIS" donde el escaneo
+real dice "Alexis". En el escaneo el cliente mezcla mayúsculas y
+minúsculas, así que no queda lejos, pero no es lo mismo. Está en la
+lista porque es la única que llega a ese grosor.
+
+CADA ENTRADA VA COMPLETA (ruta, sube, baja) Y NO SE MEZCLAN. Es el
+error #25 multiplicado por tres: colocar un texto con las medidas de
+otra fuente lo saca de la casilla o lo deja flotando, y el PDF se
+genera igual, sin avisar. Hay prueba que vuelve a medir cada TTF y lo
+compara con lo que dice el catálogo (tests/letras.test.js), otra que
+comprueba que ninguna es variable —el error #24— y otra que verifica,
+con la misma aritmética de generarPdf, que ninguna de las tres se sale
+del techo de su casilla en ninguno de los 36 campos. Hasta la v29 eso
+se había comprobado UNA vez, a mano, con una sola letra.
+
+LLENAR DE PRUEBA (v30). Un juego de datos completo en DATOS_DE_PRUEBA,
+para mirar el formato lleno sin escribir treinta y ocho campos. Todos
+los valores cantan a propósito (Cliente de Prueba, ejemplo.com,
+documentos que empiezan por 1000000000, fuera del rango de cédulas
+emitidas): si un formato de prueba se cuela impreso en un paquete de
+verdad tiene que verse a la primera. Los textos son LARGOS a propósito
+—un juego de datos cortos no enseña nada porque todo cabe— y llevan
+una ñ, que es lo que descarta media docena de fuentes. NUNCA meter ahí
+un cliente real: el archivo va al repositorio.
+
+LA LETRA (v29). Se cambió Kalam Bold por Short Stack (Google Fonts,
+SIL OFL) para acercarse a la letra con la que hoy se llena el formato a
+mano: redonda, DERECHA, ancha y de trazo uniforme. Kalam va inclinada y
+con contraste grueso-fino —es una letra de pluma, no de bolígrafo—, y
+eso se ve a simple vista al lado de un formato escrito de verdad.
+
+CÓMO SE ELIGIÓ, para no repetir el trabajo: se descargaron nueve
+manuscritas estáticas de Google Fonts, se generó CON ESTA MISMA APP el
+formato entero relleno con cada una y se compararon las hojas a 150 ppp
+contra un escaneo real. Descartadas por medida, no por gusto: Coming
+Soon deja el 40% de la tinta de Kalam (se lee flojo), Neucha y Patrick
+Hand salen estrechas y apretadas, Gochi Hand es la que más tinta
+conserva (90%) pero tiene trazo de marcador. Short Stack fue la que
+más se parece: redonda, ancha, derecha, con las minúsculas altas
+respecto a las mayúsculas (0.79) igual que en el escaneo.
+
+LO QUE CUESTA: Short Stack tiene un solo peso y Kalam era la negrita.
+Mismo texto, cada una a su cuerpo ajustado: 162.485 píxeles de tinta
+contra 114.566, el 71%. Se aceptó a sabiendas. Si alguna vez devuelven
+un paquete por letra floja, ese es el número del que hay que partir, y
+volver a Kalam es cambiar tres constantes seguidas en formulario.js.
+
+EL ANCHO NO ES PROBLEMA, y se comprobó antes de cambiar: Short Stack
+gasta un 31% más de ancho por carácter, pero en las casillas del
+formato manda la ALTURA (CUERPO_MAX se alcanza igual). El único campo
+donde el ancho llega a mandar es el correo, y ahí baja a 12.41 pt de
+13. Ningún campo se acerca a CUERPO_MIN.
+
+LETRA A MANO SIMULADA (v26). Con Kalam puesta seguía notándose que era
+impresa, y el motivo no era la tipografía: era que TODO estaba
+perfecto. Misma altura, mismo tamaño, misma inclinación, apoyadas en
+una recta de verdad. Ahora cada carácter se dibuja por separado con
+tres desvíos cortos (altura ±5.5% del cuerpo, giro ±1.6°, tamaño ±5%)
+más un vaivén lento de la línea base a lo largo de la casilla, que es
+lo que hace la mano: no da tumbos letra a letra, se va yendo.
+
+Los desvíos salen de un generador CON SEMILLA (campo + texto). Sin eso
+la vista previa cambiaría de forma en cada tecla y parecería que la app
+tiembla. Hay prueba de que dos generaciones seguidas dan el mismo
+dibujo píxel a píxel, y de que dos campos distintos no tiemblan igual.
+
+La tinta dejó de ser negro puro: (0.11, 0.13, 0.20), un azul-negro de
+bolígrafo. El negro absoluto no existe en un papel escaneado y es de lo
+que más delata que el texto se imprimió.
+
+COMPROBADO: mismo nivel de tinta que la versión recta (1892 px por
+campo contra 1924), ninguna letra se pasa del techo de su casilla, y el
+desbordamiento lateral es idéntico al de la versión recta —o sea, es
+tinta del campo vecino, no del temblor.
+
+QUE NO PAREZCA ESCRITO A MÁQUINA (v26). La letra manuscrita sola no
+basta: si todos los caracteres van a la misma altura, del mismo tamaño
+y derechos, se nota. Cada carácter se dibuja por separado con su propio
+temblor: la línea base sube o baja hasta un 5% del cuerpo, el tamaño
+varía un 5% y la inclinación llega a 2 grados. La X de las opciones
+también se descuadra un poco, porque una cruz a mano nunca sale
+simétrica. Y la tinta no es negro puro sino de bolígrafo, con algo de
+azul: un negro absoluto sobre un escaneo gris canta.
+
+EL TEMBLOR ES DETERMINISTA, y esto no es un detalle. La semilla sale
+del nombre del campo y de lo escrito, así que el mismo dato tiembla
+siempre igual. Si fuera al azar, la vista previa y el PDF descargado
+saldrían distintos y cada corrección movería toda la hoja.
+
+Al calcular el cuerpo se reserva sitio para el temblor —un 5% más de
+tamaño y un 5% de subida—, porque si no la letra más alta de la casilla
+se asoma por encima de su raya. Y el ancho se mide con el temblor
+puesto: cambia el tamaño de cada letra y con él el ancho total.
+
+CÓMO SE VE LO IMPRESO (v13). Negro, Helvetica en negrita, y el cuerpo
+más grande que quepa (tope 11 pt, suelo 6). La primera versión usaba
+azul fino a 9,5 pt y se leía peor que la letra a mano, que era justo lo
+que venía a arreglar.
+
+El ancho de impresión NO es el de la caja del mapa. Las cajas del mapa
+son las de la marca, que es corta (0.10 del ancho de la hoja), y el
+texto se sale. `anchoImprimible` calcula hasta dónde llega la casilla
+de verdad: hasta donde empieza el siguiente campo de la misma fila, o
+hasta el margen de la tabla. Sale del propio mapa, no de medir otra vez.
+
+Y NUNCA se le pasa `maxWidth` a pdf-lib: partiría la frase en dos
+líneas y la segunda caería sobre la fila de abajo. Se encoge hasta que
+quepa en una sola línea.
+
+VALIDADO ASÍ: se generó un formato lleno y se pasó por el propio
+verificador. De los 41 campos de texto, los 41 quedaron detectados como
+escritos salvo tres: firma del solicitante, huella y firma del
+responsable, que son justo los que no se imprimen. Es la comprobación
+que importa: si un campo se imprimiera en la casilla de al lado, el
+verificador lo vería vacío.
+
+TIPO DE CLIENTE. Aquí sí hacen falta las dos opciones de cada par, que
+en el mapa quedaron pendientes. Salen de la geometría del formato: van
+apiladas, misma X, y las dos alturas (0.1654–0.1839 arriba, 0.1844–0.2029
+abajo) son las que trae el formato marcado. Hay una prueba que fija que
+las dos marcas de cada par caen en renglones distintos y alineadas.
+
+ORDENAR LAS HOJAS. Se sueltan formato, RUT, cédula y foto —en PDF o en
+imagen, en cualquier orden— y se colocan, giran o quitan hojas hasta
+armar el paquete en un solo PDF. Sustituye a la web de fuera que se
+venía usando. Nada sale del equipo.
+
+DEL ORDENADOR AL VERIFICADOR (v23). Armar el paquete y revisarlo son
+dos pasos del mismo trabajo, así que hay un botón que pasa el PDF ya
+armado a la pestaña Verificar sin descargarlo ni volverlo a soltar. Se
+le entrega en memoria como File —`recibirArchivo` exige un nombre
+terminado en .pdf, un Blob pelado no vale— y por el camino las
+miniaturas se apilan sobre la primera y el mazo se va hacia Verificar.
+La animación no es adorno: dice sin palabras que lo que estabas
+ordenando es lo que se va a revisar, y tapa el rato en que el navegador
+arma el PDF. Se salta entera si el sistema pide menos movimiento.
+
+--------------------------------------------------------------------------------
+1.4 Mapa de archivos
+--------------------------------------------------------------------------------
+
+  server.js                  arranque
+  src/app.js                 Express, sesión, estáticos
+  src/routes/api.js          mapa de la API
+  src/controllers/           HTTP <-> servicio
+  src/services/
+    clientesService.js       días, prioridad, devoluciones, métricas
+    authService.js           scrypt, sin dependencias externas
+  src/services/
+    ocrService.js            única salida a api.anthropic.com; la llave
+                             vive aquí y no baja al navegador
+  src/repositories/          único lugar con SQL
+  src/db/migrar.js           esquema idempotente, conserva datos
+  src/middleware/            sesión y errores
+
+  public/rut.js              lee el RUT digital anclado a la plantilla DIAN
+  public/mapa.js             las 74 casillas del formato, generadas a
+                             partir del formato marcado por el usuario
+  public/casillas.js         decide verde/amarillo/rojo por casilla
+  public/formulario.js       el cuestionario, el catálogo LETRAS, el
+                             juego DATOS_DE_PRUEBA y dónde se imprime
+                             cada dato
+  public/organizar.js        junta y ordena las hojas del paquete
+  public/diligenciar-ui.js   pantalla "Diligenciar"
+  public/formato/            el FO-901 en blanco que sirve de base
+  public/fuentes/            las tres letras que se pueden elegir
+                             (Short Stack y Gochi Hand, SIL OFL;
+                             Permanent Marker, Apache 2.0) más Kalam
+                             Bold, que ya no está en la lista. Cada una
+                             con su licencia al lado, y hay prueba de
+                             que no falta ninguna. Cuál se usa lo dice
+                             el catálogo LETRAS de formulario.js
+  public/vendor/pdf-lib...   escritor de PDF (npm pdf-lib), vendorizado
+  public/ocr.js              recorta casillas, las manda a transcribir y
+                             compara los textos (funciones puras abajo)
+  public/rejilla.js          plantilla del formato, detección y emparejamiento
+  public/verificador.js      mide páginas, clasifica, orquesta el análisis
+  public/reglas.js           catálogo de revisiones
+  public/verificar-ui.js     visor: hojas, marcas, zoom, diagnóstico
+  public/app.js              resumen, clientes, proceso, arranque
+  public/styles.css          todo el CSS
+  public/login.html          pantalla de acceso
+
+  docs/devoluciones.md       catálogo de motivos de devolución reales
+  tests/                     212 pruebas (ver 2.4)
+
+--------------------------------------------------------------------------------
+1.5 Cómo correrlo
+--------------------------------------------------------------------------------
+
+  npm install
+  npm start                  →  http://localhost:3000
+  npm test                   →  212 pruebas
+
+  En el primer arranque se crea el usuario y la contraseña se imprime
+  UNA SOLA VEZ en la consola. Para fijarla:
+      ADMIN_USER=olga ADMIN_PASS=tu-clave-larga npm start
+
+  Variables: PORT, DATABASE_PATH, ADMIN_USER, ADMIN_PASS,
+  TELEGRAM_TOKEN, TELEGRAM_CHAT_ID (las dos últimas, opcionales, para
+  guardar copia del PDF enviado).
+
+
+================================================================================
+PARTE 2 — CONTEXTO PARA UNA IA QUE CONTINÚE
+================================================================================
+
+--------------------------------------------------------------------------------
+2.1 Quién es el usuario y cómo trabajar con él
+--------------------------------------------------------------------------------
+
+Estudiante de Ingeniería de Sistemas en Bogotá que además trabaja; esta
+herramienta es para su trabajo real, no un ejercicio. Sabe programar.
+Pide precisión y honestidad por encima de utilidad aparente: prefiere
+"no lo sé, hay que verificarlo" antes que una respuesta segura y
+equivocada. Escribe en español; responde en español.
+
+Reglas de trato que ya están establecidas:
+  · No inventar datos, funciones ni coordenadas. Si falta un dato para
+    hacer algo bien, pedirlo explícitamente y decir para qué.
+  · Marcar qué es diagnóstico verificado y qué es hipótesis.
+  · Cuando algo se rompa, reproducirlo antes de proponer arreglos.
+
+--------------------------------------------------------------------------------
+2.2 Convenciones del código
+--------------------------------------------------------------------------------
+
+  · Todo en español, incluidos los identificadores.
+  · Los comentarios explican POR QUÉ, no QUÉ, y citan el dato del que
+    salió la decisión. Ejemplo real del código:
+        /* Página en blanco: por debajo de 0.15% de tinta. La cédula más
+           tenue del lote marcó 0.4%, así que ese es el piso. */
+    Si añades un umbral sin poder citar de dónde sale, no lo añadas.
+  · Frontend sin framework ni build. Los archivos de public/ son
+    <script> clásicos que comparten ámbito global. El orden de carga en
+    index.html importa (ver error #2 de la Parte 3).
+  · CSS con variables en :root. ANTES de crear una clase, buscarla:
+    `grep -n "\.mi-clase" public/styles.css` (ver error #1).
+
+--------------------------------------------------------------------------------
+2.3 Constantes calibradas (no tocar sin volver a medir)
+--------------------------------------------------------------------------------
+
+  verificador.js
+    ANCHO_ANALISIS = 800          ancho del canvas de análisis
+    UMBRAL.paginaEnBlanco = 0.0015
+    UMBRAL.escaneoLavado = 0.60
+    UMBRAL.zonaFirmaConTinta = 0.008
+
+  rejilla.js
+    REFERENCIA          posiciones de las líneas por hoja (fracción del alto)
+    REFERENCIA_BARRAS   posiciones de las barras de sección por hoja
+    CAMPOS              qué campo vive entre qué dos líneas y en qué franja X
+    CASILLAS_OBLIGATORIAS  umbral de tinta por campo (60% de lo que marca
+                           una casilla escrita; NO es cero, porque la
+                           etiqueta impresa y la raya aportan tinta)
+    ESCALA_MIN/MAX = 0.92 / 1.10
+    DESPLAZAMIENTO_MAX = 0.045
+
+  verificar-ui.js
+    ALTO_ETQ = 22, HUECO_ETQ = 3   geometría del apilado de rótulos
+    ZOOMS = [1, 1.3, 1.6, 2, 2.5, 3]
+    ANCHO_LIENZO_MAX = 2200        tope de píxeles reales por hoja
+
+--------------------------------------------------------------------------------
+2.4 Pruebas
+--------------------------------------------------------------------------------
+
+  tests/api.test.js         API contra SQLite en memoria
+  tests/etiquetas.test.js   apilado de rótulos, función pura, sin DOM
+  tests/hojas.test.js       reparto 1/3 · 2/3 · 3/3 con hojas sintéticas
+  tests/reglas.test.js      el catálogo no pregunta de más
+  tests/visor.test.js       monta el visor en jsdom cargando los scripts
+                            en el MISMO orden que index.html
+  tests/ajuste-real.test.js el ajuste sobre hojas REALES (grises de
+                            prueba2.pdf y del formato en blanco, en
+                            tests/grises/). Es la que en la v9 fallaba.
+  tests/ocr.test.js         las comparaciones de texto, con los errores
+                            reales del paquete de prueba
+  tests/ocr-servicio.test.js leer la respuesta y rechazar entradas
+                            malas, sin tocar la red
+  tests/letras.test.js      las tres letras (que las medidas del
+                            catálogo sean las del TTF de VERDAD, que
+                            ninguna sea variable, que todas tengan ñ y
+                            tildes, y que ninguna se salga del techo de
+                            su casilla), el nombre del archivo que se
+                            descarga y el juego de datos de prueba
+
+jsdom está en devDependencies; si falta, esas pruebas se saltan solas.
+IMPORTANTE: en visor.test.js los scripts se inyectan como <script> de
+verdad, no con eval() por archivo. Con eval() cada archivo tendría su
+propio ámbito léxico y las `const` de uno no se verían desde otro, que
+es justo lo que hay que probar. El JSDOM necesita `url:
+"http://localhost/"` o no hay localStorage.
+
+--------------------------------------------------------------------------------
+2.5 Qué está abierto (por orden de valor)
+--------------------------------------------------------------------------------
+
+(1) NO HAY AJUSTE HORIZONTAL. Es el problema más importante.
+    `ubicarCampo()` en rejilla.js devuelve `x: campo.x0` tal cual de la
+    plantilla: la escala y el corrimiento que calcula todo el
+    emparejamiento se aplican SOLO al eje vertical. Si un escaneo viene
+    con otro margen, cada recuadro se corre en X y nada lo corrige.
+
+    Vía propuesta: extender `detectarBarras()` para que devuelva también
+    dónde empieza y termina cada barra en X —las barras grises van de
+    margen a margen— y calcular escala y corrimiento horizontales igual
+    que ya se hace con las filas. FALTA: el valor de referencia (dónde
+    están los bordes del formulario en el escaneo con el que se midió
+    REFERENCIA). No se puede deducir; hay que medirlo.
+
+(2) [RESUELTO EN LA v10] La sospecha era que la plantilla no fuera la
+    del formulario V4, porque en una foto parecían compartir renglón
+    "Código (CIIU)" y "E-mail". Se midió el formato en blanco completo
+    (Formato_Vacio.pdf, FO-901 2025/05 V4) y NO comparten renglón: el
+    bloque "Información General Cliente" son 16 tramos de 0.0121 de
+    alto cada uno, y Código CIIU cae en el tramo 3 y E-mail Facturación
+    en el 6, tal como decía CAMPOS. Las 41 rayas medidas coinciden una
+    a una con REFERENCIA["1/3"] salvo un factor de escala. La plantilla
+    estaba bien. La foto que levantó la sospecha era una maqueta, no el
+    formato.
+
+(3) CAMPOS QUE FALTAN EN LA PLANTILLA. En la v10 se añadieron, con
+    los índices MEDIDOS sobre el formato en blanco:
+      · Código Postal (hoja 1, tramo 5→6, x 0.697–0.884)
+      · E-mail del representante legal (hoja 1, tramo 11→12, x 0.456–0.884)
+      · Lista de precios (hoja 3, tramo 6→7, x 0.456–0.884)
+    Siguen fuera, y ahora ya se pueden añadir igual porque hay un
+    formato en blanco con el que medir:
+      · Tel. móvil, Barrio, Municipio (hoja 3, tramos 3→4 y 4→5)
+      · Canal, Vendedor, Centro suministrador (hoja 3, tramo 5→6)
+      · Grupo Cliente (hoja 3, tramo 6→7, x 0.087–0.456)
+      · Zona de Transporte, Cliente cercano (hoja 3, tramo 7→8)
+    El usuario pidió dejarlos para una actualización posterior, junto
+    con los valores esperados de cada uno. Las rayas verticales medidas
+    de esas filas están anotadas en el comentario de CELDAS.
+
+(4) CASILLAS DE SELECCIÓN SIN MARCAR (C.C., tipo de empresa, tipo de
+    cliente). Necesitan una medición NUEVA: hoy `tintaEnCampo()` mide
+    una franja rectangular ancha, y una X dentro de un círculo aporta
+    poca tinta sobre mucha área. Habría que medir la caja de cada opción
+    por separado y compararlas entre sí, no contra un umbral fijo.
+
+(5) EL REPARTO DE HOJAS POR PLANTILLA NO SE HA PROBADO CONTRA ESCANEOS
+    REALES. Las pruebas de hojas.test.js usan hojas sintéticas generadas
+    a partir de la propia plantilla. Puede fallar; por eso siguen los
+    botones de corrección manual.
+
+Motivos de devolución conocidos, con cuáles se detectan hoy y cuáles no:
+docs/devoluciones.md. Ese archivo es la fuente para decidir qué regla
+añadir; no añadir reglas por intuición.
+
+--------------------------------------------------------------------------------
+2.6 Qué NO hacer
+--------------------------------------------------------------------------------
+
+  · No convertir en casilla manual algo que no se puede medir. Se probó
+    en la v8 (cuatro revisiones sacadas de docs/devoluciones.md) y se
+    retiraron en la v9. El usuario tiene razón: trasladar el olvido no
+    es evitarlo, y cuesta un clic por paquete.
+  · [MATIZADO EN LA v10] La regla era "no intentar OCR sobre la letra
+    manuscrita". El motivo sigue siendo bueno, pero era demasiado
+    gruesa: mezclaba dos problemas distintos. Transcribir una casilla
+    para SABER qué dice es poco fiable. Transcribir dos casillas para
+    ver si dicen LO MISMO aguanta mucho más ruido, porque el error que
+    se busca es grueso (otro correo entero, un letrero de otro
+    negocio), no una letra.
+    La regla vigente es más estrecha y más firme:
+      NUNCA decir "todo bien" apoyándose SOLO en una transcripción sin
+      enseñar el texto leído. Las reglas de la v10 muestran siempre lo
+      que leyeron, y devuelven "na" —no "ok"— cuando no se transcribió.
+    Lo que la v10 NO caza, y hay que saberlo: un correo con una sola
+    letra cambiada es indistinguible del ruido de lectura.
+  · No enviar el formulario automáticamente. Microsoft Forms no tiene
+    API pública para enviar respuestas y automatizarlo exigiría guardar
+    credenciales corporativas. Lo que sí se hace es abrir la pestaña.
+  · No guardar datos personales en la base. Ver 1.3.
+  · No subir el PDF al servidor. [SIGUE VIGENTE] Lo que la v10 sí manda
+    fuera son RECORTES de casillas sueltas, y solo cuando se pulsa
+    "Leer las casillas". Ver 1.6.
+  · No poner la llave de la API en el navegador. La petición pasa por
+    /api/ocr justamente para que la llave no salga del servidor.
+
+
+================================================================================
+PARTE 3 — REGISTRO DE ERRORES COMETIDOS
+================================================================================
+
+Estos son errores REALES de este proyecto, con lo que costaron. Léelos
+antes de tocar nada.
+
+--------------------------------------------------------------------------------
+#1 · Crear una clase CSS que ya existía
+--------------------------------------------------------------------------------
+Se creó `.etq` para los rótulos del visor. `.etq` ya existía en
+styles.css para las insignias de la tabla de clientes, con
+`text-transform:uppercase` y otro padding. Resultado: los rótulos salían
+en mayúsculas y cortados ("FIRMA Y HUEL...").
+LECCIÓN: buscar el nombre de la clase en el CSS antes de crearla. Vale
+para nombres de funciones globales también: en este proyecto todos los
+archivos de public/ comparten ámbito.
+
+--------------------------------------------------------------------------------
+#2 · Una `const` detrás de un error latente → pantalla en blanco
+--------------------------------------------------------------------------------
+EL PEOR. Costó tres rondas.
+verificar-ui.js llamaba a `render()` al cargarse. `render()` lo define
+app.js, que en index.html se carga DESPUÉS. Eso lanzaba un
+ReferenceError en cada carga de la página desde hacía tiempo, y no se
+notaba: todo lo que quedaba debajo de esa línea eran declaraciones de
+función, y esas se izan (hoisting).
+Al añadir `const SVGNS = ...` debajo de esa línea, la constante quedó
+sin inicializar (las `const` NO se izan, quedan en zona muerta
+temporal). `montarHojas()` reventaba al usarla, ANTES de insertar nada
+en el DOM. Columna vacía, sin ningún mensaje.
+ARREGLADO CON DOS CAPAS: (a) verificar-ui.js ya no pinta al cargarse
+—app.js hace el primer pintado al final de su propia carga—; (b) las
+constantes van al principio del archivo, antes de cualquier línea
+ejecutable.
+LECCIÓN: en scripts clásicos, un error a media carga deja el archivo
+parcialmente inicializado y el síntoma aparece lejísimos de la causa.
+Constantes arriba, siempre. Y revisar el orden de <script>.
+
+--------------------------------------------------------------------------------
+#3 · Saber si algo está montado con una bandera en vez de mirar el DOM
+--------------------------------------------------------------------------------
+El visor se montaba una sola vez, controlado por `ver.montado`. Pero
+`render()` reescribe el contenedor y se llama sola (al responder la API,
+al cambiar de vista, al fallar la conexión). Si eso pasaba después de
+montar, el contenedor quedaba vacío y la bandera seguía en true: nunca
+se volvía a montar. La única salida era recargar la página.
+LECCIÓN: derivar "ya está montado" del DOM (`zona.querySelector(".hoja")`),
+no de una variable que puede desincronizarse del DOM.
+
+--------------------------------------------------------------------------------
+#4 · Fallar en silencio
+--------------------------------------------------------------------------------
+Los dos errores anteriores se manifestaban como "no se ve nada", sin un
+solo mensaje en pantalla. Se gastaron varias rondas adivinando.
+ARREGLADO: `window.onerror` y `unhandledrejection` pintan una banda roja
+con archivo y línea; y si falla el dibujo de las hojas, el error se
+pinta DENTRO de la columna de las hojas con su stack.
+LECCIÓN: en una interfaz, un error no atrapado es indistinguible de "no
+funciona". Hacer visible el fallo vale más que casi cualquier feature.
+
+--------------------------------------------------------------------------------
+#5 · No saber qué versión está corriendo el navegador
+--------------------------------------------------------------------------------
+Durante la depuración no había forma de saber si el navegador tenía el
+código nuevo o uno viejo en caché.
+ARREGLADO: `APP_VERSION` visible abajo a la izquierda, y `?v=N` en todos
+los <script> y en el <link> del CSS.
+LECCIÓN: ponerlo desde el primer día. Cuesta cinco minutos y ahorra
+horas de depurar algo que ya estaba arreglado.
+
+--------------------------------------------------------------------------------
+#6 · Escribir un algoritmo "obvio" sin probarlo aislado
+--------------------------------------------------------------------------------
+El primer apilado de rótulos empujaba hacia abajo lo que se pisaba. En
+el bloque de datos de la hoja 1 (nueve renglones en 120 px) eso dejaba
+la última etiqueta 80 px por debajo de su fila, y además volvía a
+solaparse cerca del pie de página. Lo detectó una prueba escrita para
+verificar, no la vista.
+ARREGLADO: los que se pisan se agrupan y el bloque se centra sobre el
+promedio de sus filas. Desvío máximo 80 px → 40 px.
+LECCIÓN: sacar la geometría a una función pura y probarla con casos
+extremos (todo junto, todo al final, todo en la misma fila, no cabe).
+
+--------------------------------------------------------------------------------
+#7 · Limpiar en el sitio equivocado
+--------------------------------------------------------------------------------
+Las rayas del diagnóstico se limpiaban al repintar marcas, pero
+`recolocar()` también corre al cambiar el ancho de la ventana: las rayas
+se iban acumulando.
+LECCIÓN: la limpieza va en la misma función que dibuja, no en la que
+casualmente la llama primero.
+
+--------------------------------------------------------------------------------
+#8 · Usar una heurística indirecta habiendo una señal directa
+--------------------------------------------------------------------------------
+Cuál página era la 1/3, 2/3 o 3/3 se decidía por tinta (la 3/3 es la de
+mitad inferior más vacía; la 2/3 la que tiene tinta abajo a la
+izquierda, donde va la firma). Acertaba en los 5 paquetes con que se
+midió y se rompía en cuanto la firma se salía de su sitio. Cuando se
+rompe, TODOS los recuadros de dos páginas se van a la página
+equivocada: el recuadro de "Firma y huella" aparecía en la hoja 3.
+ARREGLADO: se prueba cada página contra las tres plantillas y gana el
+reparto que más calza. Las barras de sección son 8, 4 y 2 según la hoja.
+LECCIÓN: si ya tienes un emparejador que sabe decir "esto calza con
+aquello", úsalo para clasificar en vez de inventar un proxy.
+
+--------------------------------------------------------------------------------
+#9 · Añadir pasos manuales en vez de detección
+--------------------------------------------------------------------------------
+En la v8 se añadieron cuatro revisiones manuales sacadas del catálogo de
+devoluciones (casillas de selección, campos que se olvidan, lista de
+precios, nombre igual a la cédula). El usuario las rechazó, con razón:
+preguntar por algo que no se puede comprobar no evita el olvido, lo
+traslada, y cobra un clic en cada paquete.
+ARREGLADO: retiradas en la v9. Quedan tres preguntas manuales y cada una
+tiene su motivo escrito en una prueba que falla si aparece una cuarta
+sin justificar.
+LECCIÓN: ante un requisito que no se puede automatizar todavía, la
+respuesta correcta es anotarlo en docs/devoluciones.md y decir qué falta
+para automatizarlo, no fabricar una casilla.
+
+--------------------------------------------------------------------------------
+#10 · Errores del arnés de pruebas (cuestan igual que los del código)
+--------------------------------------------------------------------------------
+  · Cargar los archivos con `eval()` uno por uno: cada eval tiene su
+    propio ámbito léxico, así que las `const` de un archivo no se ven
+    desde otro. Hay que inyectar <script> de verdad con
+    `runScripts: "dangerously"`.
+  · JSDOM sin `url` no da localStorage ("opaque origins").
+  · Un `fetch` falso que resuelve con `{}` hace tropezar al resto de la
+    app mucho después, cuando la prueba ya terminó, y node --test lo
+    reporta como fallo del archivo entero. Mejor que quede colgado:
+    `return new Promise(function () {})`.
+  · `node --test tests/` no funciona en Node 22: hay que poner
+    `node --test tests/*.test.js`.
+  · Cerrar la ventana de jsdom (`w.close()`) al final de cada prueba, o
+    quedan temporizadores vivos.
+
+--------------------------------------------------------------------------------
+#11 · Dar por bueno un arreglo sin comprobar que la prueba lo detecta
+--------------------------------------------------------------------------------
+Cada vez que se arregló un fallo se reintrodujo a propósito para
+comprobar que la prueba nueva lo cazaba. En el caso del #2 fue
+imprescindible: la prueba pasaba igual hasta que se puso bien.
+LECCIÓN: una prueba de regresión que no se ha visto fallar no es una
+prueba de regresión.
+
+
+--------------------------------------------------------------------------------
+#12 · Exigir un trazo CONTINUO en una hoja escrita
+--------------------------------------------------------------------------------
+EL FALLO QUE MOTIVÓ LA v10, y estuvo escondido desde el principio.
+`rachaMaxima` daba por raya un trazo horizontal continuo de al menos el
+45% del ancho. En una hoja ESCRITA, la letra cruza la raya y la parte
+en dos trozos de ~40%: ninguno llega al 45% y la raya desaparece.
+Las rayas que se perdían eran justo las de las filas con datos.
+Medido sobre la hoja 1 de un paquete real: 15 de 24 rayas. Por debajo
+del 0.75 que exige `exacto`, así que NINGUNA casilla se llegaba a
+medir y la revisión de campos vacíos decía "esta la revisas tú"
+SIEMPRE. El usuario metió errores a propósito y la app no vio ninguno.
+ARREGLADO: `rachaMaxima` acepta saltar hasta HUECO_TRAZO píxeles en
+blanco. Barrido sobre la misma hoja: 0px→15, 2→18, 4→19, 8→18, 12→22,
+16→24, 20→24. Se satura en 16, que es el valor puesto.
+OJO: el detector tolerante NO sirve para repartir las hojas 1/3·2/3·3/3
+—infla el puntaje de la hoja 1 y le roba la hoja 2—. El reparto sigue
+con el estricto y el tolerante solo entra después, ya sabiendo qué hoja
+es cuál. Se usan los dos y gana el que se pone de acuerdo con las
+barras.
+LECCIÓN: probar los detectores con la entrada REAL, no con la entrada
+limpia. El formato en blanco calzaba perfecto; el escrito, que es el
+único que existe en producción, no.
+
+--------------------------------------------------------------------------------
+#13 · Comparar dos estimaciones sin afinarlas antes
+--------------------------------------------------------------------------------
+`emparejar` sacaba (escala, desplazamiento) de UNA pareja de rayas.
+Con tolerancia de ±0.006 hay muchas escalas que puntúan igual, así que
+lo devuelto no era el mejor ajuste sino el primero que empató. Luego
+`acuerdo` comparaba ese número con el del ancla de barras y exigía
+≤0.02 de diferencia. Sobre un paquete real, la hoja 3 daba 1.0292 por
+filas y 1.0010 por barras: los dos ajustes eran BUENOS y aun así la
+hoja se declaraba aproximada con 20 de 21 rayas calzadas.
+ARREGLADO: `refinarAjuste` reajusta por mínimos cuadrados sobre las
+parejas que ya calzan y vuelve a emparejar hasta estabilizarse, en los
+dos detectores, ANTES de compararlos. Diferencia de escala en la hoja
+1: 0.0167 → 0.0033. Y hay que RECONTAR los aciertos después de afinar,
+o `confianza` habla de una posición que ya no es la que se usa.
+LECCIÓN: si dos medidas se van a comparar con un umbral estrecho,
+ponerlas primero cada una en su mejor sitio. Si no, se está midiendo
+el ruido del método, no la diferencia real.
+
+--------------------------------------------------------------------------------
+#14 · Diagnosticar con una maqueta en vez de con el original
+--------------------------------------------------------------------------------
+Sobre dos recortes de ejemplo se concluyó que la plantilla no
+correspondía al formato V4, porque los rótulos que se veían ("Celular",
+"CRA #", "Número de Factura") no existen en CAMPOS. Eran maquetas
+dibujadas para ilustrar el problema, no el FO-901. Con el formato en
+blanco de verdad, la plantilla resultó estar bien y el punto 2.5(2)
+quedó cerrado en sentido contrario al que se había supuesto.
+LECCIÓN: antes de declarar rota una plantilla calibrada sobre 24
+paquetes reales, conseguir el documento real. Una maqueta no es
+evidencia sobre el original.
+
+
+--------------------------------------------------------------------------------
+#15 · Medir una marca de 7 píxeles
+--------------------------------------------------------------------------------
+Los círculos de opción del formato miden 0.0094 del ancho de la hoja.
+En el lienzo de análisis de 800 px eso son siete píxeles y medio. Se
+programó una regla que comparaba la tinta de cada opción contra sus
+hermanas —razonable sobre el papel, porque son idénticas entre sí— y al
+medirla sobre un paquete real la opción MARCADA salió la más clara de
+las cinco. Un píxel de desajuste del recuadro pesa más que la marca de
+bolígrafo.
+ARREGLADO: los grupos no se miden por tinta. Van siempre a
+transcripción, con un recorte que incluye el rótulo y todas las
+opciones. `estadoDeGrupo` devuelve "sinDato" a propósito y hay una
+prueba que fija que NO opine.
+LECCIÓN: antes de escribir la regla, mirar cuántos píxeles tiene lo que
+se va a medir. Si son menos de veinte, el ruido de colocación gana.
+
+--------------------------------------------------------------------------------
+#16 · Un umbral por campo con una sola muestra
+--------------------------------------------------------------------------------
+Con el formato en blanco y un paquete lleno delante, era tentador poner
+74 umbrales de tinta leyendo las dos columnas. Habría sido inventar 74
+números a partir de dos muestras. Lo que salvó el asunto fue notar que
+el formato trae su propia referencia: los bloques del Aval y de Cartera
+van vacíos en TODOS los paquetes, así que sirven para calibrar el
+escaneo que se está mirando.
+LECCIÓN: cuando falten datos para calibrar, buscar la referencia DENTRO
+del documento antes de inventarse una constante.
+
+--------------------------------------------------------------------------------
+#17 · Reusar un nombre que ya existía en otro archivo
+--------------------------------------------------------------------------------
+`formulario.js` declaró `const SECCIONES` sin mirar que `rut.js` ya
+tenía una. En el navegador los archivos comparten ámbito, así que la
+segunda declaración lanza SyntaxError y NO CARGA NADA de ahí en
+adelante: pantalla en blanco. Es el error #1 otra vez, con otro nombre.
+Lo cazó la prueba de orden de carga de visor.test.js, que es
+exactamente para lo que existe.
+LECCIÓN: antes de declarar una constante nueva, `grep` por su nombre en
+public/. Y no tocar visor.test.js "para que pase": si falla, está
+haciendo su trabajo.
+
+--------------------------------------------------------------------------------
+#18 · Un conjunto de tramos "libres" para las tres hojas
+--------------------------------------------------------------------------------
+El generador del mapa recortaba la caja de cada campo a su fila, salvo
+en los tramos sin rayas dentro, que se listaban en LIBRES = {-1,8,10,16}.
+Un solo conjunto para las tres hojas. Pero el tramo 8 de la hoja 3 es
+el bloque libre de la visita y el 8 de la HOJA 1 es la fila "Nombre
+completo / Cargo", una fila normal. Resultado: las cajas de
+contactoNombre y contactoCargo no se recortaban, se metían en la fila
+de abajo y al imprimir el Cargo se comía la casilla del Teléfono.
+Nadie lo habría visto en pantalla: el semáforo seguía en verde porque
+la caja grande contiene la tinta de las dos filas.
+ARREGLADO: LIBRES va por hoja, {"1/3":{-1}, "2/3":{16}, "3/3":{8,10}},
+y hay una prueba que recorre TODOS los campos comprobando que ninguno
+llega hasta donde empieza el de al lado.
+LECCIÓN: un índice de fila solo significa algo dentro de su hoja. Si
+una tabla se indexa por número, la hoja es parte de la clave.
+
+--------------------------------------------------------------------------------
+#19 · Redibujar mientras el usuario escribe
+--------------------------------------------------------------------------------
+La vista previa se rehacía sola 600 ms después de cada tecla. Al pulsar
+el espacio en mitad de un nombre, el redibujado reconstruía el input y
+el cursor se perdía: escribir era incómodo y el usuario lo notó al
+primer intento.
+ARREGLADO: nada se regenera solo. Se llena todo, se pulsa Generar, y
+las correcciones se hacen pinchando sobre el PDF. Los `oninput` solo
+anotan el dato en memoria; el repintado espera al `onblur`.
+LECCIÓN: no repintar un formulario mientras alguien tiene el cursor
+dentro. Guardar en memoria y repintar al salir del campo.
+
+--------------------------------------------------------------------------------
+#20 · Usar una variable global que se carga bajo demanda
+--------------------------------------------------------------------------------
+`pdfjsLib` empieza en null y lo rellena `cargarPdfjs()` la primera vez
+que se analiza un paquete. Los módulos nuevos (diligenciar-ui.js,
+organizar.js) lo usaban directamente. Si alguien entraba a Diligenciar
+sin haber analizado nada antes —que es justo lo que hace quien va a
+llenar un formato—, saltaba "Cannot read properties of null (reading
+'getDocument')" y no se veía ni la vista previa ni las miniaturas.
+ARREGLADO: los dos módulos hacen `await cargarPdfjs()` antes de usarlo.
+LECCIÓN: una global que se rellena tarde no es una global, es una
+promesa. Se pide, no se lee.
+
+--------------------------------------------------------------------------------
+#21 · Un solo apoyo de línea base para todo el formato
+--------------------------------------------------------------------------------
+El texto se colocaba a una fracción fija del alto de la casilla. Parece
+razonable hasta que se mira el papel: el escaneo va ligeramente
+inclinado, así que el rótulo impreso de las celdas de la DERECHA apoya
+más abajo que el de las de la izquierda. Medido sobre un formato real,
+"No. De Identificación", "Código (CIIU)" y "Código Postal" salían entre
+0.21 y 0.27 de casilla por encima de su propio rótulo, y se veía.
+ARREGLADO: `LINEA_BASE` guarda, campo por campo, dónde apoya el rótulo
+impreso de esa casilla, medido sobre el PDF base buscando la tinta que
+tiene a su izquierda. 42 de los 44 campos de texto. Los otros dos usan
+las métricas de la fuente. Desnivel tras el arreglo: ±0.02.
+LECCIÓN: en un formato escaneado, ninguna fila es horizontal. Lo que
+vale para la primera columna no vale para la última. Cuando se pueda
+medir el papel campo por campo, se mide.
+
+--------------------------------------------------------------------------------
+#22 · Dar por bueno un rótulo sin mirar dónde está
+--------------------------------------------------------------------------------
+Para saber dónde apoya la letra de cada casilla se buscaba el rótulo
+impreso "a la izquierda del campo, dentro de su caja". En la fecha eso
+encontró el rótulo "Día/Mes/Año", que NO está a la izquierda sino
+ARRIBA, en una banda gris. Resultado: la fecha se imprimía encima del
+rótulo, sobre el gris, y la casilla blanca quedaba vacía. En la hoja 3
+pasaba algo parecido con las casillas del bloque de la visita, donde el
+rótulo va DEBAJO de la raya.
+ARREGLADO: primero se localiza la RAYA que tiene debajo cada casilla
+—eso no falla, es la fila de píxeles que cruza todo el campo— y el
+rótulo se busca solo en la franja inmediatamente encima de esa raya. Si
+lo que se encuentra está pegado a la raya, se descarta y se usa la
+separación mediana de los rótulos que sí se pudieron medir (0.0036).
+La fecha va con su casilla medida a mano: banda gris 0.0990–0.1123,
+casilla blanca 0.1129–0.1268.
+COMPROBADO: 0 de 36 campos se pasan de su raya.
+LECCIÓN: al medir sobre un escaneo, anclarse siempre a algo que no
+pueda confundirse (una raya) antes de buscar algo que sí (un rótulo).
+
+--------------------------------------------------------------------------------
+#23 · Copiar un valor a un grupo que no lo tiene
+--------------------------------------------------------------------------------
+El tipo de documento del representante se copia del cliente. Pero el
+grupo del cliente tiene NIT y el del representante no. Copiado a
+ciegas, el formato salía con el grupo del representante SIN MARCAR y
+sin que nada avisara: el valor guardado no correspondía a ninguna
+opción dibujable.
+ARREGLADO: `sugerenciaValida` comprueba que la opción exista en el
+grupo de destino antes de copiarla. Y la copia solo ocurre mientras
+nadie haya tocado el destino a mano (`dil.tocados`).
+LECCIÓN: dos listas de opciones que se parecen no son la misma lista.
+
+--------------------------------------------------------------------------------
+#24 · Confiar en `subset: true` de pdf-lib
+--------------------------------------------------------------------------------
+Se incrustó una letra manuscrita con `embedFont(bytes, {subset:true})`.
+El PDF salió con una letra suelta de cada palabra: parecía que no
+hubiera texto. No era la fuente: medido sobre el MISMO texto y el mismo
+cuerpo, con subset 430 píxeles de tinta y sin subset 8906. El
+subsetter se come los contornos. Va `subset:false`, y el PDF engorda
+unos 200 KB.
+Además, la primera fuente elegida (Caveat) solo existe como VARIABLE, y
+pdf-lib no la instancia: sale fina y con huecos. Kalam Bold y Short
+Stack son estáticas.
+LECCIÓN: después de incrustar una fuente, CONTAR PÍXELES DE TINTA. Que
+el PDF se genere sin error no quiere decir que se vea nada.
+
+--------------------------------------------------------------------------------
+#25 · Sacar el tamaño de la letra de `heightAtSize`
+--------------------------------------------------------------------------------
+En una manuscrita, `heightAtSize` devuelve 1.594 veces el cuerpo porque
+la caja de la fuente va llena de aire. Ajustando a eso, la letra salía
+diminuta. Lo que vale es la tinta REAL: se imprimió "Angel Jesús ñ 0123
+gjpy" a 20 pt sobre una línea base dibujada y se midió: sube 16.17 pt y
+baja 5.17 pt, o sea 0.808 y 0.258 del cuerpo. Con eso el cuerpo sale de
+la altura de la casilla, medida entre sus dos rayas.
+OJO: esos dos números son de Kalam Bold. Si se cambia de letra, hay que
+volver a medirlos. Se cambió en la v29 (ver #41) y se midieron.
+
+--------------------------------------------------------------------------------
+#26 · Reutilizar un clasificador calibrado para otra cosa
+--------------------------------------------------------------------------------
+El botón "Ordenar solo" reusaba `analizarPdf`, que es lo correcto: está
+calibrado contra 24 paquetes. Lo que no se miró es que dentro tiene dos
+reglas que SUPONEN el paquete ya armado —"la foto va de última", "una
+página a color en la mitad es una cédula"— y que sobre un montón
+desordenado hacen justo lo contrario de lo que se quiere. Ordenaba mal.
+ARREGLADO: esas dos reglas van detrás de `opciones.paraOrdenar`. El
+resto del clasificador se sigue compartiendo.
+LECCIÓN: al reutilizar código calibrado, mirar qué supone además de lo
+que mide. Una suposición sobre el orden no se ve en la firma de la
+función.
+
+--------------------------------------------------------------------------------
+#27 · Clasificar por color un escaneo con fondo de color
+--------------------------------------------------------------------------------
+`clasificar` exige `color < 0.03` para que una página pueda ser
+"formato". Sobre paquetes de fotocopiadora con fondo rosado o
+amarillento, las TRES hojas del formato pasan de 0.03 y caen a
+"documento". En la pestaña Verificar apenas se nota, porque quien
+revisa corrige a mano cuál hoja es cuál. En "Ordenar solo" el efecto
+era total: todas las páginas acababan en el mismo grupo, el orden salía
+idéntico al de entrada y la app decía "ya estaban en ese orden".
+ARREGLADO: al ordenar, "formato" se decide comparando la página con
+las TRES PLANTILLAS, que no dependen del color. Medido sobre un paquete
+real: confianza 1.00, 0.95 y 0.95 en las tres hojas del formato, y
+0.71 como mucho en las cinco que no lo son. Umbral en 0.85, en medio
+del hueco. Hacen falta los dos detectores de rayas: con el estricto
+solo, la hoja 1 —la más escrita— baja a 0.62 y se cuela por debajo del
+RUT escaneado.
+LECCIÓN: cuando algo "no hace nada", sospechar que TODO cayó en la
+misma categoría. Y no clasificar por color lo que se puede clasificar
+por forma.
+
+--------------------------------------------------------------------------------
+#28 · Buscar un umbral donde solo hay una comparación
+--------------------------------------------------------------------------------
+Separar la foto del local de la foto de la cédula por color no funciona
+con un umbral fijo, y ya estaba dicho en el propio código desde la v5.
+Medido sobre un paquete real, mirando solo la parte no blanca: cédula
+0.156 y 0.164, fachada 0.190. No hay número que las separe en todos los
+paquetes. Con el umbral de 0.10 sobre la página entera, la fachada
+quedaba por debajo y se ordenaba ANTES que la cédula.
+ARREGLADO: dentro de un mismo paquete sí se pueden comparar. Se elige
+la más colorida de las páginas sueltas y se exige que saque un 10% a la
+siguiente; si no lo saca, no se señala ninguna y todas se quedan en el
+orden en que llegaron. Y se mide sobre la parte NO BLANCA de la página,
+porque una foto apaisada metida en una A4 lleva franjas blancas que le
+bajan el color casi a la mitad.
+El margen del 10% es estrecho —entre las dos cédulas hay un 5%—, así
+que el aviso dice SIEMPRE cuál eligió: si se equivoca, se arrastra una
+vez.
+LECCIÓN: cuando dos cosas no se distinguen por su valor absoluto, mirar
+si se distinguen ENTRE ELLAS dentro del mismo lote. Y medir sobre lo
+que hay, no sobre el papel en blanco que lo rodea.
+
+--------------------------------------------------------------------------------
+#29 · Contar rayas con un umbral fijo de luminancia
+--------------------------------------------------------------------------------
+EL FALLO MÁS CARO HASTA AHORA, porque dejó sin funcionar todo el
+semáforo de casillas sin que se notara por qué.
+
+`clasificar` decide que una página es del formato si tiene 12 o más
+"reglas". `medirLienzo` cuenta como oscuro un píxel con luminancia < 128
+—un número fijo— y sobre papel claro las rayas del formato no llegan.
+Con el PDF que genera la propia pestaña Diligenciar, que es lo más
+limpio que puede entrar, las tres hojas dieron 1, 4 y 2 reglas. Ninguna
+era "formato", ninguna conseguía rejilla, `p.casillas` quedaba en null y
+el panel decía "no pude ubicar ninguna hoja con precisión de casilla".
+Todo lo construido en la v11 estaba ahí y no se veía nunca.
+
+Lo que sí funcionaba, sobre el mismo archivo: el emparejador de
+plantilla, que binariza por bloques con la media local en vez de un
+umbral fijo. Reconoció las tres hojas con confianza 1.00, 0.95 y 0.86.
+
+ARREGLADO: `identificarFormatos` se ejecuta SIEMPRE, no solo al
+ordenar. Y no degrada: si la plantilla no respalda una página que los
+píxeles daban por formato, se deja como estaba. Las dos vías fallan por
+motivos distintos y sumadas atrapan más que cualquiera sola. El desempate
+cuando hay más de tres hojas también pasó a usar la confianza en vez de
+`reglas`.
+
+LECCIÓN: un umbral absoluto sobre píxeles es una bomba de relojería.
+Funciona con los escaneos con los que se calibró y se cae con el
+siguiente lote. Si ya hay en el código una medida adaptativa que
+resuelve lo mismo, usar esa.
+
+Y una lección de método: el síntoma era "las casillas de colores no
+aparecen". La causa estaba tres capas más arriba, en la clasificación
+de páginas. Antes de tocar lo que falla, seguir la cadena hasta el
+primer eslabón que dio un dato falso.
+
+--------------------------------------------------------------------------------
+#30 · Un veredicto que no se puede corregir
+--------------------------------------------------------------------------------
+El semáforo pintaba verde, amarillo o rojo y no había forma de decirle
+que se había equivocado. Sabiendo lo ancho que es el amarillo (16 de 41
+casillas en un paquete real) eso es pedirle a quien revisa que confíe o
+que ignore, sin término medio.
+ARREGLADO: cada casilla se toca para darla por buena o marcarla como
+mala, y esa corrección MANDA sobre lo medido en las reglas. Se guarda
+en un campo aparte (`revision`), no pisando el color calculado: así
+siempre se puede ver qué dijo cada uno y la corrección sobrevive a que
+se rehaga el análisis.
+LECCIÓN: si una medida es incierta, la interfaz tiene que dejar
+corregirla. Un veredicto que no se puede contradecir obliga a ignorarlo
+entero.
+
+--------------------------------------------------------------------------------
+#31 · Comprobar los parámetros en vez de la colocación
+--------------------------------------------------------------------------------
+Para dar un recuadro por exacto se comparaba la ESCALA salida de las
+filas contra la salida de las barras, exigiendo ≤0.02 de diferencia. Es
+una comparación entre dos estimaciones, y la de las barras sale de dos
+puntos en la hoja 3 —solo tiene DOS barras— así que es ruidosa de
+nacimiento. Medido sobre cuatro documentos y sus doce hojas: solo 5
+llegaban a exacto. La hoja 3 casi nunca, así que su semáforo de
+casillas no se veía jamás, y en la hoja 2 tampoco.
+ARREGLADO: se comprueba que el ajuste de filas ponga cada barra de
+sección DONDE ESTÁ (a menos de 0.012), más el residuo por debajo de
+media fila. Es una comprobación sobre la colocación, no sobre los
+parámetros. Las doce hojas pasan.
+LO QUE SIGUE SIN CUBRIR, y está anotado en el código: en la hoja 1 las
+barras están separadas casi por un número entero de filas, así que un
+ajuste corrido una fila también las coloca bien. Ahí la protección es
+el puntaje ponderado de `pesos`, no las barras.
+LECCIÓN: si lo que importa es que algo caiga en su sitio, comprobar
+dónde cae. Comparar los parámetros de dos métodos mide sobre todo el
+ruido del peor de los dos.
+
+--------------------------------------------------------------------------------
+#32 · Juzgar una casilla con un ruido que ella misma definió
+--------------------------------------------------------------------------------
+La recta que predice la tinta de una casilla vacía se calcula con las
+22 casillas que van en blanco. Después se usaba esa misma recta para
+decidir si UNA de esas 22 tenía algo escrito. Circular: la casilla
+ayudó a fijar el ruido contra el que se la compara.
+ARREGLADO a medias: la recta se recalcula sin la casilla que se está
+juzgando. Pero eso la hace MÁS sensible, no menos, y aparecieron rojos
+en el bloque del Aval donde no había nada. Así que se añadió lo que
+faltaba: por tinta, una casilla que debe ir en blanco NUNCA se declara
+escrita; como mucho se manda a leer. Acusar de haber escrito en el Aval
+con una medida que se equivoca en 10 de 41 casillas que sí tienen letra
+es acusar a ciegas.
+Y en la hoja ya no se dibujan: 22 recuadros verdes en zonas que nadie
+llena tapaban media hoja 2, y encima "verde" ahí significaba lo
+contrario que en el resto de la hoja.
+LECCIÓN: quitar la circularidad de una medida no la vuelve fiable; solo
+deja de mentir sobre su propia incertidumbre. Si sigue sin dar para
+acusar, no se acusa.
+
+--------------------------------------------------------------------------------
+#33 · Medir con la media una casilla mucho más ancha que el dato
+--------------------------------------------------------------------------------
+La tinta de cada casilla se medía como la MEDIA del recuadro. Pero la
+letra se concentra al principio y la casilla es ancha: "N/A" en una
+casilla de tres centímetros apenas mueve el promedio. Resultado sobre
+un paquete real, de 45 casillas con letra: 21 verdes, 15 naranjas y 9
+rojas. Media hoja en naranja, y quien revisa no puede hacer nada con
+"no estoy seguro" repetido quince veces.
+ARREGLADO: se recorre la casilla con una ventana de 16 px y se toma la
+más cargada. Mismas casillas: 38 verdes, 3 naranjas, 4 rojas, y CERO
+falsos positivos, tanto en el formato en blanco como en las casillas
+que van vacías.
+Antes de dar con esto se probó ensanchar la caja al ancho real de la
+casilla. Salió PEOR (19 verdes, 15 rojas): más área vacía diluye más.
+El problema no era el tamaño de la caja sino el promedio.
+El ancho de ventana se barrió de 12 a 44 px: de 12 a 18 el resultado es
+idéntico. Es una meseta, no un filo, y 16 está en el centro.
+LECCIÓN: antes de elegir un umbral, revisar si el problema está en la
+medida. Aquí ningún umbral habría arreglado nada, porque la señal se
+estaba promediando hasta desaparecer.
+
+--------------------------------------------------------------------------------
+#34 · Dos capas dibujando sobre lo mismo
+--------------------------------------------------------------------------------
+El semáforo de casillas (v11) y las marcas de hallazgo (v5) pintaban
+las dos un recuadro sobre el mismo campo. Se veían como dos
+comprobaciones distintas sobre una sola casilla, y como la marca se
+dibuja después, quedaba encima y SE COMÍA EL CLIC con el que se
+confirma la casilla. El usuario no podía pasar a verde ninguna casilla
+que además tuviera un hallazgo, y no había forma de adivinar por qué.
+ARREGLADO: `.marca-campo` no recibe eventos de puntero nunca, y cuando
+duplica una casilla que la rejilla ya dibuja se pinta flojita y por
+fuera, no encima. Además el chulito se ve SIEMPRE, apagado mientras no
+se toque: si solo aparece después de confirmar, nada invita a tocarlo.
+LECCIÓN: cuando dos funciones dibujan en el mismo sitio, decidir cuál
+manda el clic. Y un control que no se ve hasta que se usa no existe.
+
+--------------------------------------------------------------------------------
+#35 · Dos dibujos a la vez sobre el mismo lienzo
+--------------------------------------------------------------------------------
+pdf.js no admite dos render() simultáneos sobre el MISMO canvas: lanza
+"Cannot use the same canvas during multiple render operations". Nunca
+había pasado porque solo se dibujaba en el montaje. Desde la v19, el
+pellizco del trackpad programa un redibujado nítido 250 ms después, y
+ese temporizador coincide con el montaje de la hoja o con el botón de
+zoom. La promesa rechazada rompía el bucle de dibujo y dejaba hojas sin
+recuadros: el síntoma que se veía era "en la hoja 1 no aparecen las
+casillas", que no parece un problema de dibujo.
+ARREGLADO: antes de empezar un dibujo se cancela el anterior, guardando
+la tarea en el propio lienzo. Cancelar lanza `RenderingCancelledException`
+a propósito y hay que tragársela: no es un fallo, es la señal de que se
+canceló bien. Además `afinarDibujo` ya no deja que el fallo de una hoja
+se lleve por delante a las demás, y `montarHojas` pinta las casillas al
+terminar aunque algo se haya torcido antes.
+Hay prueba de regresión, y se comprobó que falla sin el arreglo.
+LECCIÓN: al añadir un temporizador que redibuja, preguntarse siempre
+quién más puede estar dibujando en ese momento. Y cuando falte algo en
+pantalla, mirar primero si hubo una excepción a mitad del bucle.
+
+--------------------------------------------------------------------------------
+#36 · Pedir unanimidad a un detector ruidoso
+--------------------------------------------------------------------------------
+Para dar por bueno un recuadro se exigía que calzaran TODAS las barras
+de sección. La hoja 1 tiene ocho: pedirle a un detector con ruido que
+acierte ocho veces seguidas es pedir demasiado, y bastaba que el
+escaneo se comiera una barra tenue para que la hoja entera se quedara
+sin rejilla. Con las hojas de prueba salía 8/8 y parecía bien; con un
+escaneo de verdad del usuario, no.
+ARREGLADO: mayoría de dos tercios, mínimo dos. Sigue protegiendo del
+corrimiento de fila —un corrimiento mueve TODAS las barras a la vez, no
+una— y aguanta que el detector falle alguna.
+LECCIÓN: una comprobación que exige N aciertos de N se vuelve más
+frágil cuanto más rica es la evidencia. La hoja con más barras era la
+que menos pasaba.
+
+--------------------------------------------------------------------------------
+#37 · Un control que no cabe donde se dibuja
+--------------------------------------------------------------------------------
+El chulito para confirmar una casilla se pintaba DENTRO del recuadro. Una
+fila del formato mide unos once píxeles de alto en pantalla: el chulito
+quedaba recortado o encima de la letra. Solo se veía en las casillas
+altas del bloque de la visita, y en ninguna de las filas normales, que
+son casi todas. El usuario no podía confirmar prácticamente nada.
+ARREGLADO: va fuera, pegado al borde derecho, como una pastilla de 15 px
+con fondo propio. Hay prueba de que toda casilla pintada lleva el suyo.
+LECCIÓN: antes de meter un control dentro de un elemento, mirar cuánto
+mide ese elemento en pantalla, no en el código.
+
+--------------------------------------------------------------------------------
+#38 · Animar en el mismo tick en que se pone la transición
+--------------------------------------------------------------------------------
+La animación de entrega no se veía en absoluto. La causa es clásica:
+se añadía la clase con el `transition` y se aplicaba el `transform` en
+el mismo tick, así que el navegador junta los dos cambios y salta al
+estado final sin animar nada.
+ARREGLADO: un reflow forzado (`void nodo.offsetWidth`) entre poner la
+clase y aplicar el transform. Hay una prueba que lee el código fuente y
+comprueba que el reflow sigue estando entre los dos: es de las pocas
+cosas que no se pueden verificar por su efecto en jsdom.
+LECCIÓN: para animar hacen falta dos estados, y el navegador solo ve
+dos si le obligas a calcular el primero.
+
+--------------------------------------------------------------------------------
+#39 · Dos manejadores peleándose por el mismo puntero
+--------------------------------------------------------------------------------
+El chulito de las casillas no reaccionaba al clic. Unas veces sí, otras
+no, sin patrón visible. La causa: sobre la misma hoja había DOS
+manejadores de arrastre, el de `activarArrastre` (v6) y el que se
+añadió con el pellizco del trackpad (v19). El viejo llama a
+`preventDefault()` y captura el puntero en `pointerdown` sin mirar
+dónde se tocó, así que el clic nunca llegaba al botón de la casilla.
+Y solo se activa cuando la hoja se puede arrastrar —`hayQueMover`—, de
+ahí que dependiera del zoom y pareciera aleatorio.
+ARREGLADO: se borró el duplicado y el que queda se aparta cuando el
+toque empieza sobre una casilla. Tres pruebas: que solo haya UN
+pointerdown, que compruebe el `closest`, y que tocar una casilla la
+cicle por sus tres estados. La segunda se comprobó fallando.
+LECCIÓN: al añadir un gesto, buscar quién más escucha ese evento en el
+mismo elemento. Dos manejadores sobre un puntero no se turnan: uno gana
+y el otro no se entera.
+
+--------------------------------------------------------------------------------
+#40 · Esconder información porque la medida no es perfecta
+--------------------------------------------------------------------------------
+La rejilla de casillas solo se pintaba con `exacto`, que además de un
+buen ajuste exige que las barras de sección lo respalden. Ese detector
+es ruidoso, así que unas veces se quedaba sin recuadros la hoja 1, otras
+la 2, otras la 3. Desde fuera parecía aleatorio y dejaba la
+verificación inservible: sin recuadros no hay nada que revisar.
+ARREGLADO: se pinta siempre que el ajuste sea BUENO —confianza ≥0.75 y
+residuo por debajo de media fila, que es lo que de verdad impide estar
+corrido una fila— y se marcan con borde punteado las hojas donde las
+barras no lo respaldan. `exacto` sigue vivo para lo que sí hace daño:
+decidir si se recortan celdas para transcribir. Pintar un recuadro es
+reversible y se ve; mandar a leer la casilla equivocada, no.
+LECCIÓN: cuando una medida no llega a certeza, la respuesta no es
+callar sino etiquetar. Callar deja al usuario sin nada y encima sin
+saber por qué.
+
+--------------------------------------------------------------------------------
+#41 · Dar por buena una letra sin ponerla al lado de la de verdad
+--------------------------------------------------------------------------------
+En la v26 se concluyó que "el motivo no era la tipografía: era que TODO
+estaba perfecto". La primera mitad era falsa y no se comprobó. Kalam es
+una manuscrita inclinada y con contraste de trazo; la letra que se
+quiere imitar es redonda, derecha y de trazo uniforme. Puesto un
+formato generado al lado de un escaneo real, la diferencia se ve sin
+medir nada. Se estuvo tres versiones dando por resuelto lo que solo se
+había mirado en abstracto.
+ARREGLADO en la v29: se eligió la letra comparando formatos GENERADOS
+con la app contra un escaneo real, no mirando muestras de tipografías
+sueltas.
+Y una trampa que casi se cae otra vez: al cambiar de fuente hay que
+volver a medir la tinta que sube y baja de la línea base (error #25).
+Se midió sobre los contornos del propio TTF en vez de imprimiendo, que
+es más rápido, PERO no se dio por bueno el método hasta reproducir con
+él los números que ya estaban medidos a mano para Kalam: 0.808 y 0.258
+frente a 0.8080 y 0.2590 medidos. Coincide, así que el número nuevo es
+de fiar.
+LECCIÓN: una imitación se juzga al lado del original, no en el aire. Y
+un método de medida nuevo se estrena reproduciendo una medida vieja que
+ya se sabe buena.
+
+--------------------------------------------------------------------------------
+#42 · Escribir en un comentario una causa que no se había comprobado
+--------------------------------------------------------------------------------
+Al unificar el nombre del archivo que se descarga (v30), el comentario
+decía que la función vieja «se comía las tildes: Peña salía como Pea».
+Sonaba plausible y era FALSO: la expresión vieja listaba áéíóúñ
+explícitamente y las conservaba. Lo que sí perdía, comprobado pasándole
+casos: los puntos ("Comercializadora S.A.S." → "Comercializadora SAS"),
+los guiones ("Ñuñez-Pérez" → "ÑuñezPérez") y la diéresis, que no estaba
+en la lista ("Müller" → "Mller").
+El comentario se habría quedado ahí años, y el siguiente que lo leyera
+habría creído entender un problema que nunca existió.
+LECCIÓN: un comentario que explica POR QUÉ es una afirmación sobre el
+código, y vale lo mismo que un umbral inventado si no se comprueba.
+Antes de escribir «esto pasaba porque…», ejecutarlo.
+
+--------------------------------------------------------------------------------
+#43 · Usar una variable CSS que no existe
+--------------------------------------------------------------------------------
+El estilo del selector de letra se escribió con `var(--linea)`. Las
+variables de este proyecto se llaman `--border` y `--border-strong`;
+`--linea` no existe en ningún sitio. CSS no avisa: la propiedad se
+descarta en silencio y el filete simplemente no aparece.
+Es el error #1 visto del otro lado —allí se creó una clase que ya
+existía, aquí se usó una variable que no— y tiene el mismo remedio.
+LECCIÓN: `grep` en styles.css antes de escribir un nombre, tanto si se
+va a crear como si se va a usar. En CSS, equivocarse de nombre no da
+error: da nada.
+
+
+================================================================================
+RESUMEN EN CINCO LÍNEAS, POR SI NO HAY TOKENS PARA MÁS
+================================================================================
+
+Herramienta personal que revisa un paquete de PDFs (formato FO-901,
+cédula, RUT, foto) en el navegador antes de mandarlo, dibuja recuadros
+sobre los errores que encuentra, registra el envío y mide cuánto tarda
+el trámite. Node + Express + SQLite + pdf.js, sin framework, todo en
+español. Lo difícil es ubicar los campos sobre escaneos torcidos: se
+detectan las líneas del formulario y se emparejan con una plantilla, y
+solo se promete precisión cuando dos detectores coinciden. Lo abierto:
+falta el ajuste horizontal, faltan cuatro campos en la plantilla y hay
+que confirmar que la plantilla corresponde a la versión V4 del formato.
+La regla de oro: medir o callar, y nunca inventar un número. Desde la
+v10 hay además transcripción de casillas contra la API de Anthropic
+para cruzar los tres correos, la lista de precios y el nombre del
+negocio con el letrero de la foto; los recortes salen del equipo y eso
+está decidido a conciencia (1.6), pero la transcripción nunca absuelve
+sola: si no leyó, dice que no leyó.

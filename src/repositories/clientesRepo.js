@@ -10,6 +10,7 @@ const aModelo = (fila) => fila && {
   estado: fila.estado,
   fechaEnvio: fila.fecha_envio,
   fechaActivacion: fila.fecha_activacion,
+  intentos: fila.intentos,
   creadoEn: fila.creado_en,
   actualizadoEn: fila.actualizado_en,
 };
@@ -22,34 +23,44 @@ function porId(id) {
   return aModelo(db.prepare("SELECT * FROM clientes WHERE id = ?").get(id));
 }
 
-function crear({ nombre, tipo, estado, fechaEnvio, fechaActivacion }) {
+/* Búsqueda tolerante para no duplicar al mismo cliente al reenviar. */
+function porNombre(nombre) {
+  const fila = db.prepare("SELECT * FROM clientes WHERE lower(trim(nombre)) = lower(trim(?))").get(nombre);
+  return aModelo(fila);
+}
+
+function crear({ nombre, tipo, estado, fechaEnvio, fechaActivacion, intentos }) {
   const id = crypto.randomUUID();
   const ahora = new Date().toISOString();
   db.prepare(`
-    INSERT INTO clientes (id, nombre, tipo, estado, fecha_envio, fecha_activacion, creado_en, actualizado_en)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, nombre, tipo, estado, fechaEnvio, fechaActivacion, ahora, ahora);
+    INSERT INTO clientes (id, nombre, tipo, estado, fecha_envio, fecha_activacion, intentos, creado_en, actualizado_en)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, nombre, tipo, estado, fechaEnvio, fechaActivacion, intentos == null ? 1 : intentos, ahora, ahora);
   return porId(id);
 }
 
-function actualizar(id, { nombre, tipo, estado, fechaEnvio, fechaActivacion }) {
+function actualizar(id, { nombre, tipo, estado, fechaEnvio, fechaActivacion, intentos }) {
+  const actual = db.prepare("SELECT intentos FROM clientes WHERE id = ?").get(id);
   db.prepare(`
     UPDATE clientes
-    SET nombre = ?, tipo = ?, estado = ?, fecha_envio = ?, fecha_activacion = ?, actualizado_en = ?
+    SET nombre = ?, tipo = ?, estado = ?, fecha_envio = ?, fecha_activacion = ?, intentos = ?, actualizado_en = ?
     WHERE id = ?
-  `).run(nombre, tipo, estado, fechaEnvio, fechaActivacion, new Date().toISOString(), id);
+  `).run(nombre, tipo, estado, fechaEnvio, fechaActivacion,
+    intentos == null ? (actual ? actual.intentos : 1) : intentos,
+    new Date().toISOString(), id);
   return porId(id);
 }
 
 function eliminar(id) {
+  db.prepare("DELETE FROM devoluciones WHERE cliente_id = ?").run(id);
   return db.prepare("DELETE FROM clientes WHERE id = ?").run(id).changes > 0;
 }
 
 function reemplazarTodos(clientes) {
   const ahora = new Date().toISOString();
   const insertar = db.prepare(`
-    INSERT INTO clientes (id, nombre, tipo, estado, fecha_envio, fecha_activacion, creado_en, actualizado_en)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO clientes (id, nombre, tipo, estado, fecha_envio, fecha_activacion, intentos, creado_en, actualizado_en)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   db.exec("BEGIN");
   try {
@@ -57,7 +68,7 @@ function reemplazarTodos(clientes) {
     for (const c of clientes) {
       insertar.run(
         c.id || crypto.randomUUID(), c.nombre, c.tipo || "", c.estado,
-        c.fechaEnvio || null, c.fechaActivacion || null,
+        c.fechaEnvio || null, c.fechaActivacion || null, c.intentos || 1,
         c.creadoEn || ahora, ahora
       );
     }
@@ -68,4 +79,4 @@ function reemplazarTodos(clientes) {
   }
 }
 
-module.exports = { listar, porId, crear, actualizar, eliminar, reemplazarTodos };
+module.exports = { listar, porId, porNombre, crear, actualizar, eliminar, reemplazarTodos };
