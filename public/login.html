@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Entrar · Distriaves</title>
+<link rel="stylesheet" href="styles.css?v=9">
+</head>
+<body class="pantalla-acceso">
+
+<main class="acceso">
+  <div class="acceso-marca">
+    <div class="logo-mark">D</div>
+    <div>
+      <div class="acceso-nombre">Distriaves</div>
+      <div class="acceso-sub">Creación de clientes</div>
+    </div>
+  </div>
+
+  <div class="acceso-barra">Acceso al tablero</div>
+
+  <div class="acceso-cuerpo">
+    <h1>Entra a revisar</h1>
+    <p class="acceso-nota">Los paquetes se revisan en este navegador. Del otro lado están
+      los tuyos, con los días que llevan esperando.</p>
+
+    <div class="acceso-campo">
+      <label for="usuario">Usuario</label>
+      <input type="text" id="usuario" autocomplete="username" autocapitalize="off" spellcheck="false">
+    </div>
+    <div class="acceso-campo">
+      <label for="clave">Contraseña</label>
+      <input type="password" id="clave" autocomplete="current-password">
+    </div>
+
+    <div id="error"></div>
+    <button class="btn btn-primary" id="btnEntrar">Entrar</button>
+  </div>
+
+  <div class="acceso-pie"><span>Distriaves · uso personal</span><span class="num">v9</span></div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+async function entrar() {
+  const boton = $("btnEntrar");
+  boton.disabled = true;
+  boton.textContent = "Entrando…";
+  $("error").innerHTML = "";
+  try {
+    const res = await fetch("/api/auth/entrar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ usuario: $("usuario").value.trim().toLowerCase(), clave: $("clave").value }),
+    });
+    const cuerpo = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(cuerpo.error || "No se pudo entrar.");
+    location.href = "/";
+  } catch (e) {
+    $("error").innerHTML = '<div class="acceso-error">' + e.message + '</div>';
+    boton.disabled = false;
+    boton.textContent = "Entrar";
+    $("clave").value = "";
+    $("clave").focus();
+  }
+}
+
+$("btnEntrar").addEventListener("click", entrar);
+["usuario", "clave"].forEach((id) => {
+  $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") entrar(); });
+});
+$("usuario").focus();
+</script>
+</body>
+</html>

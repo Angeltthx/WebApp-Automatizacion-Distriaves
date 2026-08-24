@@ -1,0 +1,8 @@
+﻿{
+  "_comentario": "Copia este archivo como clientes-iniciales.json y pon tus propios clientes. Se cargan una sola vez, cuando la base esta vacia.",
+  "clientes": [
+    { "nombre": "Cliente Ejemplo Uno", "tipo": "", "estado": "Activo" },
+    { "nombre": "Cliente Ejemplo Dos", "tipo": "", "estado": "Activo" },
+    { "nombre": "Cliente Ejemplo Tres", "tipo": "", "estado": "Inactivo" }
+  ]
+}
